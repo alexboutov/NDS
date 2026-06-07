@@ -1,5 +1,5 @@
 //
-// NDS.Logging.cs — NDS v0.2
+// NDS.Logging.cs — NDS v0.3
 // UTF-8 file logging (ANT-style) + execution fill logging.
 // Part 3 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -53,11 +53,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void LogParamsHeader()
         {
-            LogLine("HEADER,NDS v0.2");
+            LogLine("HEADER,NDS v0.3");
             LogLine("HEADER,ExecInstrument=" + Instruments[0].FullName);
             LogLine("HEADER,SignalInstrument=" + SignalInstrument);
             LogLine("HEADER,LookbackBars=" + LookbackBars);
             LogLine("HEADER,EntryZ=" + EntryZ.ToString("F2"));
+            LogLine("HEADER,TargetSigma=" + TargetSigma.ToString("F2"));
             LogLine("HEADER,StopTicks=" + StopTicks);
             LogLine("HEADER,TimeStopBars=" + TimeStopBars);
             LogLine("HEADER,SessionStartHHmm=" + SessionStartHHmm);

@@ -1,5 +1,5 @@
 //
-// NDS.Signals.cs — NDS v0.2
+// NDS.Signals.cs — NDS v0.3
 // Signal logic: pure-C# rolling z-score calc + entry/exit decisions.
 // Part 2 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -39,25 +39,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                     + zCalc.StdDev.ToString("F6") + ","
                     + z.ToString("F3"));
 
-            // 'Position' is context-sensitive: inside BIP1 it would read the
-            // 6E position (always flat) and this branch would never trigger.
-            // Positions[0] pins the primary instrument (M6E).
-            MarketPosition mp = Positions[0].MarketPosition;
-
-            if (mp == MarketPosition.Long)
-            {
-                // Refresh the z=0 (mean) target once per signal bar; the
-                // resting limit is at most one bar stale in between.
-                SetProfitTarget(SigLong, CalculationMode.Price, RoundExecTick(zCalc.Mean));
-            }
-            else if (mp == MarketPosition.Short)
-            {
-                SetProfitTarget(SigShort, CalculationMode.Price, RoundExecTick(zCalc.Mean));
-            }
-            else
-            {
+            // v0.3: no in-trade management. The stop (fixed ticks) and the
+            // frozen entry-anchored target (k*sigma ticks, set at entry) are
+            // engine-resident; nothing is refreshed while a position is open.
+            if (Positions[0].MarketPosition == MarketPosition.Flat)
                 TryEnter(z, t);
-            }
 
             prevZ = z;
         }
@@ -85,6 +71,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             // resets cleanly before the first entry check.
             RollStopCountDay(t);
 
+            // v0.3: frozen entry-anchored target. Distance = TargetSigma *
+            // sigma(entry), converted to execution-instrument ticks. Ticks
+            // mode anchors the limit to the actual fill price; the level is
+            // computed once here and never refreshed.
+            double tickSize = Instruments[ExecSeries].MasterInstrument.TickSize;
+            int tgtTicks = (int)Math.Round(TargetSigma * zCalc.StdDev / tickSize);
+
             // Fade-only, on threshold CROSS (not level). Requiring a cross
             // means a stop-out while z is still extreme cannot instantly
             // re-enter; z must come back inside and cross out again.
@@ -95,10 +88,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                     LogLine("SKIP_MAXSTOPS," + FmtTime(t) + ",LONG," + stopsLongToday);
                     return;
                 }
+                if (tgtTicks < MinTargetTicks)
+                {
+                    LogLine("SKIP_TINYTGT," + FmtTime(t) + ",LONG,sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
+                    return;
+                }
                 SetStopLoss(SigLong, CalculationMode.Ticks, StopTicks, false);
-                SetProfitTarget(SigLong, CalculationMode.Price, RoundExecTick(zCalc.Mean));
+                SetProfitTarget(SigLong, CalculationMode.Ticks, tgtTicks);
                 EnterLong(ExecSeries, 1, SigLong);
-                LogLine("SIGNAL," + FmtTime(t) + ",LONG,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3"));
+                LogLine("SIGNAL," + FmtTime(t) + ",LONG,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3")
+                    + ",sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
             }
             else if (prevZ < EntryZ && z >= EntryZ)
             {
@@ -107,20 +106,17 @@ namespace NinjaTrader.NinjaScript.Strategies
                     LogLine("SKIP_MAXSTOPS," + FmtTime(t) + ",SHORT," + stopsShortToday);
                     return;
                 }
+                if (tgtTicks < MinTargetTicks)
+                {
+                    LogLine("SKIP_TINYTGT," + FmtTime(t) + ",SHORT,sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
+                    return;
+                }
                 SetStopLoss(SigShort, CalculationMode.Ticks, StopTicks, false);
-                SetProfitTarget(SigShort, CalculationMode.Price, RoundExecTick(zCalc.Mean));
+                SetProfitTarget(SigShort, CalculationMode.Ticks, tgtTicks);
                 EnterShort(ExecSeries, 1, SigShort);
-                LogLine("SIGNAL," + FmtTime(t) + ",SHORT,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3"));
+                LogLine("SIGNAL," + FmtTime(t) + ",SHORT,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3")
+                    + ",sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
             }
-        }
-
-        // 6E and M6E trade the same price levels but different tick sizes
-        // (6E = 0.00005, M6E = 0.0001). Orders execute on the M6E tick series
-        // (BarsInProgress 2, same instrument as 0), so round computed prices
-        // to the execution instrument's tick.
-        private double RoundExecTick(double price)
-        {
-            return Instruments[ExecSeries].MasterInstrument.RoundToTickSize(price);
         }
     }
 

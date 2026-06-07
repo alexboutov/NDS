@@ -1,5 +1,5 @@
 //
-// NDS.cs — NDS v0.2
+// NDS.cs — NDS v0.3
 // Strategy shell: state machine, OnBarUpdate routing, session/time-stop management.
 // Part 1 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -12,9 +12,9 @@
 //   is unavailable for multi-series strategies — submitting orders against an
 //   in-code 1-tick series is the documented equivalent, giving tick-accurate
 //   backtest fills. Analyzer Order Fill Resolution must be set to STANDARD.
-//   Stop-loss (fixed ticks) and profit target (z=0 mean price) rest in the
-//   order engine and fill tick-by-tick; the target price is refreshed once per
-//   signal bar while a position is open.
+//   Stop-loss (fixed ticks) and profit target (frozen at entry: TargetSigma *
+//   sigma(entry) in ticks from fill) rest in the order engine and fill
+//   tick-by-tick; nothing is refreshed while a position is open (v0.3).
 //
 // Deliberately NOT in v0.2: news filter, trailing stop, OnMarketData tick
 // sentinel, UI panel, parameter-confirmation gate.
@@ -50,6 +50,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int sessionEndT;              // HHmmss
         private int entryCutoffT;             // HHmmss; no new entries after this
         private const int EntryCutoffMinutes = 5;  // hardcoded since v0.1
+        private const int MinTargetTicks = 2;      // v0.3: skip entries whose k*sigma target rounds below this
 
         private const string SigLong  = "NDS_L";
         private const string SigShort = "NDS_S";
@@ -61,7 +62,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (State == State.SetDefaults)
             {
-                Description = "NDS v0.2 - intraday mean reversion. Signal: 6E z-score. Execution: primary series (M6E).";
+                Description = "NDS v0.3 - intraday mean reversion. Signal: 6E z-score. Execution: primary series (M6E).";
                 Name = "NDS";
                 Calculate = Calculate.OnBarClose;
                 EntriesPerDirection = 1;
@@ -75,6 +76,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 SignalInstrument = "6E 06-26";   // match contract month to the test period
                 LookbackBars     = 60;
                 EntryZ           = 2.0;
+                TargetSigma      = 1.0;          // v0.3: frozen target = k * sigma(entry)
                 StopTicks        = 15;           // M6E ticks: 15 x $1.25 = $18.75
                 TimeStopBars     = 120;          // execution-series (M6E 1-min) bars; 0 disables
                 SessionStartHHmm = 800;          // chart time zone
@@ -228,32 +230,37 @@ namespace NinjaTrader.NinjaScript.Strategies
         public double EntryZ { get; set; }
 
         [NinjaScriptProperty]
+        [Range(0.1, 10.0)]
+        [Display(Name = "TargetSigma", Description = "Frozen profit target distance = TargetSigma * sigma(entry), in execution ticks from fill. Entries skipped if it rounds below 2 ticks.", Order = 4, GroupName = "01 NDS")]
+        public double TargetSigma { get; set; }
+
+        [NinjaScriptProperty]
         [Range(1, int.MaxValue)]
-        [Display(Name = "StopTicks", Description = "Fixed stop in execution-instrument ticks (M6E tick = $1.25).", Order = 4, GroupName = "01 NDS")]
+        [Display(Name = "StopTicks", Description = "Fixed stop in execution-instrument ticks (M6E tick = $1.25).", Order = 5, GroupName = "01 NDS")]
         public int StopTicks { get; set; }
 
         [NinjaScriptProperty]
         [Range(0, int.MaxValue)]
-        [Display(Name = "TimeStopBars", Description = "Exit after N execution-series bars in trade. 0 disables.", Order = 5, GroupName = "01 NDS")]
+        [Display(Name = "TimeStopBars", Description = "Exit after N execution-series bars in trade. 0 disables.", Order = 6, GroupName = "01 NDS")]
         public int TimeStopBars { get; set; }
 
         [NinjaScriptProperty]
         [Range(0, 2359)]
-        [Display(Name = "SessionStartHHmm", Description = "Entry window start, chart time zone, e.g. 800 = 08:00.", Order = 6, GroupName = "01 NDS")]
+        [Display(Name = "SessionStartHHmm", Description = "Entry window start, chart time zone, e.g. 800 = 08:00.", Order = 7, GroupName = "01 NDS")]
         public int SessionStartHHmm { get; set; }
 
         [NinjaScriptProperty]
         [Range(0, 2359)]
-        [Display(Name = "SessionEndHHmm", Description = "Force-flat time, chart time zone, e.g. 1100 = 11:00.", Order = 7, GroupName = "01 NDS")]
+        [Display(Name = "SessionEndHHmm", Description = "Force-flat time, chart time zone, e.g. 1100 = 11:00.", Order = 8, GroupName = "01 NDS")]
         public int SessionEndHHmm { get; set; }
 
         [NinjaScriptProperty]
         [Range(0, 100)]
-        [Display(Name = "MaxStopsPerDirectionPerDay", Description = "After N stop-loss exits in a direction on a calendar day, no further entries in that direction that day. 0 = disabled.", Order = 8, GroupName = "01 NDS")]
+        [Display(Name = "MaxStopsPerDirectionPerDay", Description = "After N stop-loss exits in a direction on a calendar day, no further entries in that direction that day. 0 = disabled.", Order = 9, GroupName = "01 NDS")]
         public int MaxStopsPerDirectionPerDay { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "TraceZScore", Description = "Write a ZSCORE log line per signal bar. Set false for optimizer runs.", Order = 9, GroupName = "01 NDS")]
+        [Display(Name = "TraceZScore", Description = "Write a ZSCORE log line per signal bar. Set false for optimizer runs.", Order = 10, GroupName = "01 NDS")]
         public bool TraceZScore { get; set; }
         #endregion
     }
