@@ -1,0 +1,7 @@
+*.log
+NDS_Logs/
+bin/
+obj/
+*.suo
+*.user
+.vs
