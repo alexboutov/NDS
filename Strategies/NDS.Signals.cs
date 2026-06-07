@@ -1,5 +1,5 @@
 //
-// NDS.Signals.cs — NDS v0.1
+// NDS.Signals.cs — NDS v0.2
 // Signal logic: pure-C# rolling z-score calc + entry/exit decisions.
 // Part 2 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -80,11 +80,21 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (tod < sessionStartT || tod >= entryCutoffT)
                 return;
 
+            // v0.2: per-direction daily stop budget. Counters roll on the
+            // signal-bar date here as well, so a day with zero stops still
+            // resets cleanly before the first entry check.
+            RollStopCountDay(t);
+
             // Fade-only, on threshold CROSS (not level). Requiring a cross
             // means a stop-out while z is still extreme cannot instantly
             // re-enter; z must come back inside and cross out again.
             if (prevZ > -EntryZ && z <= -EntryZ)
             {
+                if (StopBudgetExhausted(true))
+                {
+                    LogLine("SKIP_MAXSTOPS," + FmtTime(t) + ",LONG," + stopsLongToday);
+                    return;
+                }
                 SetStopLoss(SigLong, CalculationMode.Ticks, StopTicks, false);
                 SetProfitTarget(SigLong, CalculationMode.Price, RoundExecTick(zCalc.Mean));
                 EnterLong(ExecSeries, 1, SigLong);
@@ -92,6 +102,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (prevZ < EntryZ && z >= EntryZ)
             {
+                if (StopBudgetExhausted(false))
+                {
+                    LogLine("SKIP_MAXSTOPS," + FmtTime(t) + ",SHORT," + stopsShortToday);
+                    return;
+                }
                 SetStopLoss(SigShort, CalculationMode.Ticks, StopTicks, false);
                 SetProfitTarget(SigShort, CalculationMode.Price, RoundExecTick(zCalc.Mean));
                 EnterShort(ExecSeries, 1, SigShort);

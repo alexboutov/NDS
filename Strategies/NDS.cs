@@ -1,5 +1,5 @@
 //
-// NDS.cs — NDS v0.1
+// NDS.cs — NDS v0.2
 // Strategy shell: state machine, OnBarUpdate routing, session/time-stop management.
 // Part 1 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -16,7 +16,7 @@
 //   order engine and fill tick-by-tick; the target price is refreshed once per
 //   signal bar while a position is open.
 //
-// Deliberately NOT in v0.1: news filter, trailing stop, OnMarketData tick
+// Deliberately NOT in v0.2: news filter, trailing stop, OnMarketData tick
 // sentinel, UI panel, parameter-confirmation gate.
 //
 #region Using declarations
@@ -33,14 +33,23 @@ namespace NinjaTrader.NinjaScript.Strategies
     public partial class NDS : Strategy
     {
         // ---- runtime state ----
+        // ALL mutable fields are reset in State.DataLoaded:
+        // IsInstantiatedOnEachOptimizationIteration=false reuses this instance
+        // across optimizer iterations, so field initializers alone would leak
+        // state between iterations.
         private NdsZScoreCalc zCalc;
         private double prevZ = double.NaN;
         private int barsInTrade;
 
+        // MaxStopsPerDirectionPerDay tracking (v0.2)
+        private DateTime stopCountDay = DateTime.MinValue;
+        private int stopsLongToday;
+        private int stopsShortToday;
+
         private int sessionStartT;            // HHmmss
         private int sessionEndT;              // HHmmss
         private int entryCutoffT;             // HHmmss; no new entries after this
-        private const int EntryCutoffMinutes = 5;  // hardcoded in v0.1
+        private const int EntryCutoffMinutes = 5;  // hardcoded since v0.1
 
         private const string SigLong  = "NDS_L";
         private const string SigShort = "NDS_S";
@@ -52,7 +61,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (State == State.SetDefaults)
             {
-                Description = "NDS v0.1 - intraday mean reversion. Signal: 6E z-score. Execution: primary series (M6E).";
+                Description = "NDS v0.2 - intraday mean reversion. Signal: 6E z-score. Execution: primary series (M6E).";
                 Name = "NDS";
                 Calculate = Calculate.OnBarClose;
                 EntriesPerDirection = 1;
@@ -62,7 +71,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 BarsRequiredToTrade = 20;
                 IsInstantiatedOnEachOptimizationIteration = false;
 
-                // ---- v0.1 parameters ----
+                // ---- parameters ----
                 SignalInstrument = "6E 06-26";   // match contract month to the test period
                 LookbackBars     = 60;
                 EntryZ           = 2.0;
@@ -70,6 +79,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 TimeStopBars     = 120;          // execution-series (M6E 1-min) bars; 0 disables
                 SessionStartHHmm = 800;          // chart time zone
                 SessionEndHHmm   = 1100;
+                MaxStopsPerDirectionPerDay = 0;  // 0 = disabled (v0.1 behavior)
                 TraceZScore      = true;         // set false for optimizer runs
             }
             else if (State == State.Configure)
@@ -85,6 +95,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (State == State.DataLoaded)
             {
                 zCalc         = new NdsZScoreCalc(LookbackBars);
+                prevZ         = double.NaN;
+                barsInTrade   = 0;
+                stopCountDay  = DateTime.MinValue;
+                stopsLongToday  = 0;
+                stopsShortToday = 0;
                 sessionStartT = SessionStartHHmm * 100;
                 sessionEndT   = SessionEndHHmm * 100;
                 entryCutoffT  = AddMinutesHHmmss(sessionEndT, -EntryCutoffMinutes);
@@ -164,6 +179,39 @@ namespace NinjaTrader.NinjaScript.Strategies
             return d.Hour * 10000 + d.Minute * 100 + d.Second;
         }
 
+        // ---- MaxStopsPerDirectionPerDay support (v0.2) ----
+        // Counters roll over on calendar-date change of the supplied time.
+        private void RollStopCountDay(DateTime t)
+        {
+            if (t.Date != stopCountDay)
+            {
+                stopCountDay = t.Date;
+                stopsLongToday = 0;
+                stopsShortToday = 0;
+            }
+        }
+
+        // Called from OnExecutionUpdate (NDS.Logging.cs) on stop-loss fills.
+        // A long position's stop fills as a Sell (MarketPosition.Short) and
+        // vice versa, so the stopped direction is the opposite of the
+        // execution side.
+        private void CountStopFill(MarketPosition execSide, DateTime t)
+        {
+            RollStopCountDay(t);
+            if (execSide == MarketPosition.Short)
+                stopsLongToday++;
+            else if (execSide == MarketPosition.Long)
+                stopsShortToday++;
+        }
+
+        private bool StopBudgetExhausted(bool forLong)
+        {
+            if (MaxStopsPerDirectionPerDay <= 0)
+                return false;
+            int n = forLong ? stopsLongToday : stopsShortToday;
+            return n >= MaxStopsPerDirectionPerDay;
+        }
+
         #region Properties
         [NinjaScriptProperty]
         [Display(Name = "SignalInstrument", Description = "Full name of the signal series, e.g. '6E 06-26'. Match the contract month to the test period.", Order = 1, GroupName = "01 NDS")]
@@ -200,7 +248,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int SessionEndHHmm { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "TraceZScore", Description = "Write a ZSCORE log line per signal bar. Set false for optimizer runs.", Order = 8, GroupName = "01 NDS")]
+        [Range(0, 100)]
+        [Display(Name = "MaxStopsPerDirectionPerDay", Description = "After N stop-loss exits in a direction on a calendar day, no further entries in that direction that day. 0 = disabled.", Order = 8, GroupName = "01 NDS")]
+        public int MaxStopsPerDirectionPerDay { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TraceZScore", Description = "Write a ZSCORE log line per signal bar. Set false for optimizer runs.", Order = 9, GroupName = "01 NDS")]
         public bool TraceZScore { get; set; }
         #endregion
     }

@@ -1,5 +1,5 @@
 //
-// NDS.Logging.cs — NDS v0.1
+// NDS.Logging.cs — NDS v0.2
 // UTF-8 file logging (ANT-style) + execution fill logging.
 // Part 3 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
@@ -53,7 +53,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void LogParamsHeader()
         {
-            LogLine("HEADER,NDS v0.1");
+            LogLine("HEADER,NDS v0.2");
             LogLine("HEADER,ExecInstrument=" + Instruments[0].FullName);
             LogLine("HEADER,SignalInstrument=" + SignalInstrument);
             LogLine("HEADER,LookbackBars=" + LookbackBars);
@@ -62,6 +62,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             LogLine("HEADER,TimeStopBars=" + TimeStopBars);
             LogLine("HEADER,SessionStartHHmm=" + SessionStartHHmm);
             LogLine("HEADER,SessionEndHHmm=" + SessionEndHHmm);
+            LogLine("HEADER,MaxStopsPerDirectionPerDay=" + MaxStopsPerDirectionPerDay);
             LogLine("HEADER,EntryCutoffMinutes=" + EntryCutoffMinutes);
             LogLine("HEADER,Calculate=" + Calculate);
             LogLine("HEADER,TraceZScore=" + TraceZScore);
@@ -106,6 +107,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (execution == null || execution.Order == null)
                 return;
+
+            // v0.2: feed the per-direction daily stop counter. The Set-method
+            // stop order is named "Stop loss" by NT8.
+            if (execution.Order.Name == "Stop loss")
+                CountStopFill(marketPosition, time);
 
             LogLine("EXEC," + FmtTime(time) + ","
                 + execution.Order.Name + ","
