@@ -66,6 +66,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (CurrentBars[0] < BarsRequiredToTrade)
                 return;
 
+            // Fill series (M6E 1-tick, BarsInProgress 2) must have data before
+            // any order can be submitted against it.
+            if (CurrentBars[2] < 0)
+                return;
+
             int tod = ToTime(t);
             if (tod < sessionStartT || tod >= entryCutoffT)
                 return;
@@ -77,24 +82,25 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 SetStopLoss(SigLong, CalculationMode.Ticks, StopTicks, false);
                 SetProfitTarget(SigLong, CalculationMode.Price, RoundExecTick(zCalc.Mean));
-                EnterLong(0, 1, SigLong);
+                EnterLong(ExecSeries, 1, SigLong);
                 LogLine("SIGNAL," + FmtTime(t) + ",LONG,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3"));
             }
             else if (prevZ < EntryZ && z >= EntryZ)
             {
                 SetStopLoss(SigShort, CalculationMode.Ticks, StopTicks, false);
                 SetProfitTarget(SigShort, CalculationMode.Price, RoundExecTick(zCalc.Mean));
-                EnterShort(0, 1, SigShort);
+                EnterShort(ExecSeries, 1, SigShort);
                 LogLine("SIGNAL," + FmtTime(t) + ",SHORT,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3"));
             }
         }
 
         // 6E and M6E trade the same price levels but different tick sizes
-        // (6E = 0.00005, M6E = 0.0001). Orders execute on series 0, so round
-        // computed prices to the execution instrument's tick.
+        // (6E = 0.00005, M6E = 0.0001). Orders execute on the M6E tick series
+        // (BarsInProgress 2, same instrument as 0), so round computed prices
+        // to the execution instrument's tick.
         private double RoundExecTick(double price)
         {
-            return Instruments[0].MasterInstrument.RoundToTickSize(price);
+            return Instruments[ExecSeries].MasterInstrument.RoundToTickSize(price);
         }
     }
 

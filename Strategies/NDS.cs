@@ -4,12 +4,17 @@
 // Part 1 of 3: NDS.cs, NDS.Signals.cs, NDS.Logging.cs (partial class).
 //
 // Design:
-//   BarsInProgress 0 = execution series (apply strategy to M6E chart/instrument)
+//   BarsInProgress 0 = primary series (apply strategy to M6E chart/instrument)
 //   BarsInProgress 1 = signal series (6E, 1-minute, added in Configure)
-//   Calculate.OnBarClose. Signals evaluated on closed 6E bars; orders routed to
-//   series 0 (M6E). Stop-loss (fixed ticks) and profit target (z=0 mean price)
-//   rest in the order engine and fill intrabar; the target price is refreshed
-//   once per signal bar while a position is open.
+//   BarsInProgress 2 = fill series (M6E, 1-tick, added in Configure)
+//   Calculate.OnBarClose. Signals evaluated on closed 6E bars; ALL orders are
+//   routed to series 2 (M6E 1-tick) because NT8's 'High' Order Fill Resolution
+//   is unavailable for multi-series strategies — submitting orders against an
+//   in-code 1-tick series is the documented equivalent, giving tick-accurate
+//   backtest fills. Analyzer Order Fill Resolution must be set to STANDARD.
+//   Stop-loss (fixed ticks) and profit target (z=0 mean price) rest in the
+//   order engine and fill tick-by-tick; the target price is refreshed once per
+//   signal bar while a position is open.
 //
 // Deliberately NOT in v0.1: news filter, trailing stop, OnMarketData tick
 // sentinel, UI panel, parameter-confirmation gate.
@@ -40,6 +45,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private const string SigLong  = "NDS_L";
         private const string SigShort = "NDS_S";
 
+        // All orders are routed to this BarsInProgress index (M6E 1-tick).
+        private const int ExecSeries = 2;
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -68,6 +76,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 // BarsInProgress 1 = signal series
                 AddDataSeries(SignalInstrument, BarsPeriodType.Minute, 1);
+                // BarsInProgress 2 = fill series: 1-tick on the primary
+                // instrument (no name argument = primary). Orders submitted to
+                // this series are filled tick-by-tick in backtests, replacing
+                // the single-series-only 'High' Order Fill Resolution.
+                AddDataSeries(BarsPeriodType.Tick, 1);
             }
             else if (State == State.DataLoaded)
             {
@@ -86,6 +99,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         protected override void OnBarUpdate()
         {
+            if (BarsInProgress == 2)
+                return;             // fill series: order engine only, no logic
             if (BarsInProgress == 1)
                 OnSignalBar();      // NDS.Signals.cs
             else if (BarsInProgress == 0)
@@ -126,12 +141,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (Position.MarketPosition == MarketPosition.Long)
             {
-                ExitLong(0, Position.Quantity, "NDS_X_" + reason, SigLong);
+                ExitLong(ExecSeries, Position.Quantity, "NDS_X_" + reason, SigLong);
                 LogLine("FLATTEN," + FmtTime(Times[0][0]) + "," + reason + ",LONG");
             }
             else if (Position.MarketPosition == MarketPosition.Short)
             {
-                ExitShort(0, Position.Quantity, "NDS_X_" + reason, SigShort);
+                ExitShort(ExecSeries, Position.Quantity, "NDS_X_" + reason, SigShort);
                 LogLine("FLATTEN," + FmtTime(Times[0][0]) + "," + reason + ",SHORT");
             }
         }
