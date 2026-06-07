@@ -22,9 +22,15 @@ import sys
 from collections import deque
 
 # Log formatting: close F5, mean/stddev F6, z F3.
-TOL_MEAN = 5e-7
-TOL_STD  = 5e-7
-TOL_Z    = 5e-4
+# Tolerances must sit ABOVE the half-ULP rounding boundary of the printed
+# precision: a true value landing exactly on x.xxxxx5 is rounded by .NET's
+# ToString("F6") and deviates from the recomputed value by exactly 5e-7.
+# Closes are multiples of 0.00005 (6E tick) so 60-bar means hit that boundary
+# often. 1 ULP of the printed precision still catches any genuine math error
+# (wrong window, sample-vs-population stddev: deviations >= 1e-5).
+TOL_MEAN = 1.0e-6
+TOL_STD  = 1.0e-6
+TOL_Z    = 1.0e-3
 
 
 def main():

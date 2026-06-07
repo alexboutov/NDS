@@ -108,12 +108,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         }
 
         // ---- execution-series housekeeping (M6E, BarsInProgress 0) ----
+        // NOTE: 'Position' is BarsInProgress-context-sensitive in multi-
+        // instrument strategies (in BIP1 it reads the 6E position, which is
+        // always flat). Positions[0] pins the primary instrument (M6E)
+        // explicitly and is used everywhere instead.
         private void OnExecBar()
         {
             if (CurrentBars[0] < BarsRequiredToTrade)
                 return;
 
-            if (Position.MarketPosition == MarketPosition.Flat)
+            if (Positions[0].MarketPosition == MarketPosition.Flat)
             {
                 barsInTrade = 0;
                 return;
@@ -139,14 +143,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void FlattenAll(string reason)
         {
-            if (Position.MarketPosition == MarketPosition.Long)
+            if (Positions[0].MarketPosition == MarketPosition.Long)
             {
-                ExitLong(ExecSeries, Position.Quantity, "NDS_X_" + reason, SigLong);
+                ExitLong(ExecSeries, Positions[0].Quantity, "NDS_X_" + reason, SigLong);
                 LogLine("FLATTEN," + FmtTime(Times[0][0]) + "," + reason + ",LONG");
             }
-            else if (Position.MarketPosition == MarketPosition.Short)
+            else if (Positions[0].MarketPosition == MarketPosition.Short)
             {
-                ExitShort(ExecSeries, Position.Quantity, "NDS_X_" + reason, SigShort);
+                ExitShort(ExecSeries, Positions[0].Quantity, "NDS_X_" + reason, SigShort);
                 LogLine("FLATTEN," + FmtTime(Times[0][0]) + "," + reason + ",SHORT");
             }
         }

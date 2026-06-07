@@ -39,13 +39,18 @@ namespace NinjaTrader.NinjaScript.Strategies
                     + zCalc.StdDev.ToString("F6") + ","
                     + z.ToString("F3"));
 
-            if (Position.MarketPosition == MarketPosition.Long)
+            // 'Position' is context-sensitive: inside BIP1 it would read the
+            // 6E position (always flat) and this branch would never trigger.
+            // Positions[0] pins the primary instrument (M6E).
+            MarketPosition mp = Positions[0].MarketPosition;
+
+            if (mp == MarketPosition.Long)
             {
                 // Refresh the z=0 (mean) target once per signal bar; the
                 // resting limit is at most one bar stale in between.
                 SetProfitTarget(SigLong, CalculationMode.Price, RoundExecTick(zCalc.Mean));
             }
-            else if (Position.MarketPosition == MarketPosition.Short)
+            else if (mp == MarketPosition.Short)
             {
                 SetProfitTarget(SigShort, CalculationMode.Price, RoundExecTick(zCalc.Mean));
             }
