@@ -4,4 +4,4 @@ bin/
 obj/
 *.suo
 *.user
-.vs
+.vsNinjaTrader Grid*.csv
