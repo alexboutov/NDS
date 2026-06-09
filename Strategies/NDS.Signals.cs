@@ -93,8 +93,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                     LogLine("SKIP_TINYTGT," + FmtTime(t) + ",LONG,sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
                     return;
                 }
-                SetStopLoss(SigLong, CalculationMode.Ticks, StopTicks, false);
-                SetProfitTarget(SigLong, CalculationMode.Ticks, tgtTicks);
+                // Diagnostic mode suppresses both exits so the only exit is the
+                // session-end force-flat -> uncensored favorable excursion.
+                // NOT a tradeable configuration (no stop = unbounded risk).
+                if (!DiagnosticNoExit)
+                {
+                    SetStopLoss(SigLong, CalculationMode.Ticks, StopTicks, false);
+                    SetProfitTarget(SigLong, CalculationMode.Ticks, tgtTicks);
+                }
                 EnterLong(ExecSeries, 1, SigLong);
                 LogLine("SIGNAL," + FmtTime(t) + ",LONG,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3")
                     + ",sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
@@ -111,8 +117,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                     LogLine("SKIP_TINYTGT," + FmtTime(t) + ",SHORT,sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);
                     return;
                 }
-                SetStopLoss(SigShort, CalculationMode.Ticks, StopTicks, false);
-                SetProfitTarget(SigShort, CalculationMode.Ticks, tgtTicks);
+                if (!DiagnosticNoExit)
+                {
+                    SetStopLoss(SigShort, CalculationMode.Ticks, StopTicks, false);
+                    SetProfitTarget(SigShort, CalculationMode.Ticks, tgtTicks);
+                }
                 EnterShort(ExecSeries, 1, SigShort);
                 LogLine("SIGNAL," + FmtTime(t) + ",SHORT,z=" + z.ToString("F3") + ",prevZ=" + prevZ.ToString("F3")
                     + ",sigma=" + zCalc.StdDev.ToString("F6") + ",tgtTicks=" + tgtTicks);

@@ -83,6 +83,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 SessionEndHHmm   = 1100;
                 MaxStopsPerDirectionPerDay = 0;  // 0 = disabled (v0.1 behavior)
                 TraceZScore      = true;         // set false for optimizer runs
+                DiagnosticNoExit = false;        // DIAGNOSTIC ONLY - default off keeps v0.3 behavior intact / regression-testable
             }
             else if (State == State.Configure)
             {
@@ -153,8 +154,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Time stop
-            if (TimeStopBars > 0 && barsInTrade >= TimeStopBars)
+            // Time stop. Suppressed in diagnostic mode so SESSION_END is the
+            // sole exit and favorable excursion runs fully uncensored.
+            if (!DiagnosticNoExit && TimeStopBars > 0 && barsInTrade >= TimeStopBars)
                 FlattenAll("TIME_STOP");
         }
 
@@ -262,6 +264,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty]
         [Display(Name = "TraceZScore", Description = "Write a ZSCORE log line per signal bar. Set false for optimizer runs.", Order = 10, GroupName = "01 NDS")]
         public bool TraceZScore { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "DiagnosticNoExit", Description = "DIAGNOSTIC ONLY - NOT TRADEABLE. When true, suppresses BOTH stop-loss and profit target (and the time stop) so each trade runs to SESSION_END uncensored, to measure true MFE/MAE. No stop = unbounded risk; never apply to sim or live. Default false = normal v0.3 behavior.", Order = 11, GroupName = "01 NDS")]
+        public bool DiagnosticNoExit { get; set; }
         #endregion
     }
 }
