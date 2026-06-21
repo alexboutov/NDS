@@ -20,7 +20,8 @@ Write-Host "Running TTP analysis..." -ForegroundColor Cyan
 & $AnalysisScript
 
 # --- Email config ---
-$EmailTo      = @("alex.boutov@gmail.com")
+# $EmailTo      = @("alex.boutov@gmail.com")
+$EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com", "olga.boutov@gmail.com")
 # Uncomment to add Niki:
 # $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com")
 $EmailFrom    = "alex.boutov@gmail.com"

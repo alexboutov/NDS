@@ -156,32 +156,34 @@ def make_instrument_bars(trades):
 
 
 def make_tod_charts(trades):
-    by_hour = defaultdict(lambda: {'pnl': 0, 'wins': 0, 'total': 0})
+    by_half = defaultdict(lambda: {'pnl': 0, 'wins': 0, 'total': 0})
     for t in trades:
         hr = int(t['EntryTime'][11:13])
-        by_hour[hr]['pnl'] += t['PnL_Dollars']
-        by_hour[hr]['total'] += 1
-        if t['Win']: by_hour[hr]['wins'] += 1
-    hours = sorted(by_hour.keys())
-    labels = [f'{h:02d}:00' for h in hours]
-    pnls = [by_hour[h]['pnl'] for h in hours]
-    wps = [100 * by_hour[h]['wins'] / max(by_hour[h]['total'], 1) for h in hours]
-    counts = [by_hour[h]['total'] for h in hours]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 3.5))
-    ax1.bar(range(len(hours)), pnls, color=[COLORS['green'] if p >= 0 else COLORS['red'] for p in pnls], width=0.6)
-    ax1.set_xticks(range(len(hours)))
-    ax1.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+        mn = int(t['EntryTime'][14:16])
+        slot = hr * 2 + (1 if mn >= 30 else 0)
+        by_half[slot]['pnl'] += t['PnL_Dollars']
+        by_half[slot]['total'] += 1
+        if t['Win']: by_half[slot]['wins'] += 1
+    slots = sorted(by_half.keys())
+    labels = [f'{s//2:02d}:{(s%2)*30:02d}' for s in slots]
+    pnls = [by_half[s]['pnl'] for s in slots]
+    wps = [100 * by_half[s]['wins'] / max(by_half[s]['total'], 1) for s in slots]
+    counts = [by_half[s]['total'] for s in slots]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 3.5))
+    ax1.bar(range(len(slots)), pnls, color=[COLORS['green'] if p >= 0 else COLORS['red'] for p in pnls], width=0.6)
+    ax1.set_xticks(range(len(slots)))
+    ax1.set_xticklabels(labels, rotation=90, ha='center', fontsize=6)
     ax1.axhline(0, color='#555', linewidth=0.5)
-    ax1.set_title('PnL by Hour', fontsize=11, fontweight='bold')
+    ax1.set_title('PnL by Half Hour', fontsize=11, fontweight='bold')
     ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v:,.0f}'))
     ax1.grid(True, axis='y', alpha=0.3)
-    ax2.bar(range(len(hours)), wps, color=COLORS['blue'], width=0.6, label='Win%')
+    ax2.bar(range(len(slots)), wps, color=COLORS['blue'], width=0.6, label='Win%')
     ax2_twin = ax2.twinx()
-    ax2_twin.bar(range(len(hours)), counts, color='white', alpha=0.1, width=0.6, label='Trades')
-    ax2.set_xticks(range(len(hours)))
-    ax2.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+    ax2_twin.bar(range(len(slots)), counts, color='white', alpha=0.1, width=0.6, label='Trades')
+    ax2.set_xticks(range(len(slots)))
+    ax2.set_xticklabels(labels, rotation=90, ha='center', fontsize=6)
     ax2.set_ylim(0, 100)
-    ax2.set_title('Win Rate & Volume by Hour', fontsize=11, fontweight='bold')
+    ax2.set_title('Win Rate & Volume by Half Hour', fontsize=11, fontweight='bold')
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'{v:.0f}%'))
     ax2_twin.set_ylabel('Trade Count', fontsize=8)
     ax2_twin.tick_params(axis='y', labelcolor='#666', labelsize=7)
@@ -295,10 +297,12 @@ def compute_stats(trades):
     by_hour = defaultdict(lambda: {'pnl': 0, 'wins': 0, 'losses': 0, 'total': 0})
     for t in trades:
         hr = int(t['EntryTime'][11:13])
-        by_hour[hr]['pnl'] += t['PnL_Dollars']
-        by_hour[hr]['total'] += 1
-        if t['Win']: by_hour[hr]['wins'] += 1
-        else: by_hour[hr]['losses'] += 1
+        mn = int(t['EntryTime'][14:16])
+        slot = hr * 2 + (1 if mn >= 30 else 0)
+        by_hour[slot]['pnl'] += t['PnL_Dollars']
+        by_hour[slot]['total'] += 1
+        if t['Win']: by_hour[slot]['wins'] += 1
+        else: by_hour[slot]['losses'] += 1
 
     streaks = []
     cur_type = None; cur_len = 0; cur_pnl = 0; cur_start = ''; cur_end = ''
@@ -422,12 +426,13 @@ def build_html(trades, stats, chart_images, accounts, report_date):
         instr_rows += f"<tr><td>{sym}</td><td>{d['total']}</td><td>{d['wins']}</td><td>{d['losses']}</td><td>{wp}%</td><td class='{pnl_class(d['pnl'])}'>${d['pnl']:,.0f}</td><td class='negative'>${d['maxdd']:,.0f}</td></tr>\n"
 
     tod_rows = ''
-    for hr in sorted(stats['by_hour'].keys()):
-        d = stats['by_hour'][hr]
+    for slot in sorted(stats['by_hour'].keys()):
+        d = stats['by_hour'][slot]
         wp = round(100 * d['wins'] / max(d['total'], 1), 1)
-        aw = round(sum(t['PnL_Dollars'] for t in trades if int(t['EntryTime'][11:13]) == hr and t['Win']) / max(d['wins'], 1), 0)
-        al = round(sum(t['PnL_Dollars'] for t in trades if int(t['EntryTime'][11:13]) == hr and not t['Win']) / max(d['losses'], 1), 0)
-        tod_rows += f"<tr><td>{hr:02d}:00</td><td>{d['total']}</td><td>{d['wins']}</td><td>{d['losses']}</td><td>{wp}%</td><td class='{pnl_class(d['pnl'])}'>${d['pnl']:,.0f}</td><td class='positive'>${aw:,.0f}</td><td class='negative'>${al:,.0f}</td></tr>\n"
+        slot_label = f"{slot//2:02d}:{(slot%2)*30:02d}"
+        aw = round(sum(t['PnL_Dollars'] for t in trades if (int(t['EntryTime'][11:13])*2 + (1 if int(t['EntryTime'][14:16])>=30 else 0)) == slot and t['Win']) / max(d['wins'], 1), 0)
+        al = round(sum(t['PnL_Dollars'] for t in trades if (int(t['EntryTime'][11:13])*2 + (1 if int(t['EntryTime'][14:16])>=30 else 0)) == slot and not t['Win']) / max(d['losses'], 1), 0)
+        tod_rows += f"<tr><td>{slot_label}</td><td>{d['total']}</td><td>{d['wins']}</td><td>{d['losses']}</td><td>{wp}%</td><td class='{pnl_class(d['pnl'])}'>${d['pnl']:,.0f}</td><td class='positive'>${aw:,.0f}</td><td class='negative'>${al:,.0f}</td></tr>\n"
 
     daily_rows = ''
     cum = 0
