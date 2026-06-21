@@ -73,3 +73,11 @@ try {
     Write-Error "Failed to send email: $_"
     exit 1
 }
+
+# --- Cleanup: remove report files older than 7 days ---
+Get-ChildItem -Path $ScriptDir -Filter "TTPRoundTripsAnalysis-*" |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+    ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "Cleaned up: $($_.Name)" -ForegroundColor DarkGray
+    }
