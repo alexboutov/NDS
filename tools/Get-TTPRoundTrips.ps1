@@ -201,8 +201,8 @@ Out-Report ""
 
 # --- Overall Summary ---
 $totalPnL = ($results | Measure-Object -Property PnL_Dollars -Sum).Sum
-$winners  = ($results | Where-Object { $_.Win }).Count
-$losers   = ($results | Where-Object { -not $_.Win }).Count
+$winners  = @($results | Where-Object { $_.Win }).Count
+$losers   = @($results | Where-Object { -not $_.Win }).Count
 $total    = $results.Count
 $winPct   = if ($total -gt 0) { [math]::Round(100 * $winners / $total, 1) } else { 0 }
 $losePct  = if ($total -gt 0) { [math]::Round(100 * $losers / $total, 1) } else { 0 }
@@ -228,8 +228,8 @@ foreach ($grp in $byInstrument | Sort-Object Name) {
     $trades = $grp.Group
     $count  = $trades.Count
     $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
-    $wins   = ($trades | Where-Object { $_.Win }).Count
-    $losses = ($trades | Where-Object { -not $_.Win }).Count
+    $wins   = @($trades | Where-Object { $_.Win }).Count
+    $losses = @($trades | Where-Object { -not $_.Win }).Count
     $wp     = if ($count -gt 0) { [math]::Round(100 * $wins / $count, 1) } else { 0 }
     Out-Report "$sym : $count trades | W: $wins ($wp%) L: $losses | PnL: `$$pnl"
     $null = $instrData.Add(@{ sym=$sym; count=$count; pnl=$pnl; wins=$wins; losses=$losses; wp=$wp })
@@ -252,8 +252,8 @@ foreach ($grp in $byHour | Sort-Object { [int]$_.Name }) {
     $trades = $grp.Group
     $cnt    = $trades.Count
     $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
-    $w      = ($trades | Where-Object { $_.Win }).Count
-    $l      = ($trades | Where-Object { -not $_.Win }).Count
+    $w      = @($trades | Where-Object { $_.Win }).Count
+    $l      = @($trades | Where-Object { -not $_.Win }).Count
     $wp     = if ($cnt -gt 0) { [math]::Round(100 * $w / $cnt, 1) } else { 0 }
     $aw     = if ($w -gt 0) { [math]::Round(($trades | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
     $al     = if ($l -gt 0) { [math]::Round(($trades | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
@@ -277,7 +277,7 @@ foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } 
         $trades = $grp.Group
         $cnt    = $trades.Count
         $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
-        $w      = ($trades | Where-Object { $_.Win }).Count
+        $w      = @($trades | Where-Object { $_.Win }).Count
         $wp     = if ($cnt -gt 0) { [math]::Round(100 * $w / $cnt, 1) } else { 0 }
         Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,10}" -f $hr, $cnt, $w, $wp, "`$$pnl")
         $null = $iRows.Add(@{ hour=$hr; trades=$cnt; wins=$w; pnl=$pnl; wp=$wp })
@@ -428,7 +428,7 @@ foreach ($dayGrp in $byDate | Sort-Object Name) {
     $dayCnt = $dayTrades.Count
     $dayPnL = [math]::Round(($dayTrades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
     $runningPnL += $dayPnL
-    $dayWins = ($dayTrades | Where-Object { $_.Win }).Count
+    $dayWins = @($dayTrades | Where-Object { $_.Win }).Count
     $dayWP   = if ($dayCnt -gt 0) { [math]::Round(100 * $dayWins / $dayCnt, 1) } else { 0 }
     Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, "`$$dayPnL", "`$$([math]::Round($runningPnL, 2))", $dayWins, $dayWP)
     $null = $dailyData.Add(@{ date=$dt; trades=$dayCnt; dayPnl=$dayPnL; cumPnl=[math]::Round($runningPnL,2); wins=$dayWins; wp=$dayWP })
@@ -439,6 +439,17 @@ Out-Report ""
 # WRITE TEXT REPORT FILE
 # ============================================================
 $txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis-$reportDate.txt"
+# --- Last day's individual trades ---
+$lastDate = ($sorted | Select-Object -Last 1).EntryTime.Substring(0, 10)
+$lastDayTrades = $sorted | Where-Object { $_.EntryTime.Substring(0, 10) -eq $lastDate }
+Out-Report "=== INDIVIDUAL TRADES - $lastDate ===" "Green"
+Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "EntryTime", "Instrument", "Dir", "Entry", "Exit", "Qty", "PnL_Pts", "PnL_$")
+Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----")
+foreach ($t in $lastDayTrades) {
+    $dir = if ($t.Direction -eq 'Long') { 'L' } else { 'S' }
+    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, $t.EntryPrice, $t.ExitPrice, $t.Quantity, $t.PnL_Points, $t.PnL_Dollars)
+}
+Out-Report ""
 $script:reportLines | Out-File -FilePath $txtFile -Encoding UTF8
 Write-Host "Text report saved: $txtFile" -ForegroundColor Cyan
 
