@@ -40,6 +40,16 @@ function Out-Report([string]$text, [string]$color = $null) {
     else        { Write-Host $text }
 }
 
+# --- Numeric formatting helpers ---
+# Fixed decimal count per column + right-alignment => decimal points line up vertically.
+$script:Inv = [System.Globalization.CultureInfo]::InvariantCulture
+function Fmt-Num([double]$v, [int]$dec = 1) { $v.ToString("F$dec", $script:Inv) }
+function Fmt-Usd([double]$v, [int]$dec = 0) { '$' + $v.ToString("F$dec", $script:Inv) }
+function Fmt-Pct([double]$num, [double]$den) {
+    if ($den -le 0) { return 0 }
+    return [int][math]::Round(100 * $num / $den)
+}
+
 # ============================================================
 # STEP 1: Discover TTP accounts
 # ============================================================
@@ -204,8 +214,8 @@ $totalPnL = ($results | Measure-Object -Property PnL_Dollars -Sum).Sum
 $winners  = @($results | Where-Object { $_.Win }).Count
 $losers   = @($results | Where-Object { -not $_.Win }).Count
 $total    = $results.Count
-$winPct   = if ($total -gt 0) { [math]::Round(100 * $winners / $total, 1) } else { 0 }
-$losePct  = if ($total -gt 0) { [math]::Round(100 * $losers / $total, 1) } else { 0 }
+$winPct   = Fmt-Pct $winners $total
+$losePct  = Fmt-Pct $losers  $total
 $avgWin   = if ($winners -gt 0) { [math]::Round(($results | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 $avgLoss  = if ($losers -gt 0) { [math]::Round(($results | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 
@@ -213,9 +223,9 @@ Out-Report "=== OVERALL SUMMARY ===" "Green"
 Out-Report "Total Round Trips : $total"
 Out-Report "Winners           : $winners ($winPct%)"
 Out-Report "Losers            : $losers ($losePct%)"
-Out-Report "Avg Win           : `$$avgWin"
-Out-Report "Avg Loss          : `$$avgLoss"
-Out-Report "Total PnL         : `$$([math]::Round($totalPnL, 2))"
+Out-Report "Avg Win           : $(Fmt-Usd $avgWin 2)"
+Out-Report "Avg Loss          : $(Fmt-Usd $avgLoss 2)"
+Out-Report "Total PnL         : $(Fmt-Usd $totalPnL)"
 Out-Report ""
 
 # --- Per-instrument breakdown ---
@@ -230,8 +240,8 @@ foreach ($grp in $byInstrument | Sort-Object Name) {
     $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
     $wins   = @($trades | Where-Object { $_.Win }).Count
     $losses = @($trades | Where-Object { -not $_.Win }).Count
-    $wp     = if ($count -gt 0) { [math]::Round(100 * $wins / $count, 1) } else { 0 }
-    Out-Report "$sym : $count trades | W: $wins ($wp%) L: $losses | PnL: `$$pnl"
+    $wp     = Fmt-Pct $wins $count
+    Out-Report ("{0,-3}: {1,4} trades | W: {2,4} ({3,3}%) L: {4,4} | PnL: {5,9}" -f $sym, $count, $wins, $wp, $losses, (Fmt-Usd $pnl))
     $null = $instrData.Add(@{ sym=$sym; count=$count; pnl=$pnl; wins=$wins; losses=$losses; wp=$wp })
 }
 Out-Report ""
@@ -241,8 +251,8 @@ Out-Report "=== TIME OF DAY ANALYSIS ===" "Green"
 Out-Report "(Hour is based on log timestamp, i.e. local VPS/machine time)"
 Out-Report ""
 $byHour = $results | Group-Object { [int]($_.EntryTime.Substring(11, 2)) }
-$headerTod = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,10} {7,10}" -f "Hour", "Trades", "Wins", "Win%", "Losses", "PnL", "AvgWin", "AvgLoss"
-$separTod  = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,10} {7,10}" -f "----", "------", "----", "----", "------", "---", "------", "-------"
+$headerTod = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,11} {7,11}" -f "Hour", "Trades", "Wins", "Win%", "Losses", "PnL", "AvgWin", "AvgLoss"
+$separTod  = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,11} {7,11}" -f "----", "------", "----", "----", "------", "---", "------", "-------"
 Out-Report $headerTod
 Out-Report $separTod
 
@@ -254,10 +264,10 @@ foreach ($grp in $byHour | Sort-Object { [int]$_.Name }) {
     $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
     $w      = @($trades | Where-Object { $_.Win }).Count
     $l      = @($trades | Where-Object { -not $_.Win }).Count
-    $wp     = if ($cnt -gt 0) { [math]::Round(100 * $w / $cnt, 1) } else { 0 }
+    $wp     = Fmt-Pct $w $cnt
     $aw     = if ($w -gt 0) { [math]::Round(($trades | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
     $al     = if ($l -gt 0) { [math]::Round(($trades | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
-    Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,7} {5,10} {6,10} {7,10}" -f $hr, $cnt, $w, $wp, $l, "`$$pnl", "`$$aw", "`$$al")
+    Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,7} {5,10} {6,11} {7,11}" -f $hr, $cnt, $w, $wp, $l, (Fmt-Usd $pnl), (Fmt-Usd $aw 2), (Fmt-Usd $al 2))
     $null = $todData.Add(@{ hour=$hr; trades=$cnt; wins=$w; losses=$l; wp=$wp; pnl=$pnl; avgWin=$aw; avgLoss=$al })
 }
 Out-Report ""
@@ -278,8 +288,8 @@ foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } 
         $cnt    = $trades.Count
         $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
         $w      = @($trades | Where-Object { $_.Win }).Count
-        $wp     = if ($cnt -gt 0) { [math]::Round(100 * $w / $cnt, 1) } else { 0 }
-        Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,10}" -f $hr, $cnt, $w, $wp, "`$$pnl")
+        $wp     = Fmt-Pct $w $cnt
+        Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,10}" -f $hr, $cnt, $w, $wp, (Fmt-Usd $pnl))
         $null = $iRows.Add(@{ hour=$hr; trades=$cnt; wins=$w; pnl=$pnl; wp=$wp })
     }
     $todByInstr[$instrGrp.Name] = $iRows
@@ -321,33 +331,33 @@ $maxLoseStreak = $loseStreaks | Sort-Object Length -Descending | Select-Object -
 $avgWinStreak  = if ($winStreaks.Count  -gt 0) { [math]::Round(($winStreaks  | Measure-Object -Property Length -Average).Average, 1) } else { 0 }
 $avgLoseStreak = if ($loseStreaks.Count -gt 0) { [math]::Round(($loseStreaks | Measure-Object -Property Length -Average).Average, 1) } else { 0 }
 
-Out-Report "Win Streaks  : $($winStreaks.Count) total | Avg length: $avgWinStreak | Max: $($maxWinStreak.Length) (PnL: `$$($maxWinStreak.PnL))"
+Out-Report ("Win Streaks  : {0,3} total | Avg length: {1,4} | Max: {2,3} (PnL: {3})" -f $winStreaks.Count, $avgWinStreak, $maxWinStreak.Length, (Fmt-Usd $maxWinStreak.PnL))
 Out-Report "               Max streak: $($maxWinStreak.Start) to $($maxWinStreak.End)"
-Out-Report "Loss Streaks : $($loseStreaks.Count) total | Avg length: $avgLoseStreak | Max: $($maxLoseStreak.Length) (PnL: `$$($maxLoseStreak.PnL))"
+Out-Report ("Loss Streaks : {0,3} total | Avg length: {1,4} | Max: {2,3} (PnL: {3})" -f $loseStreaks.Count, $avgLoseStreak, $maxLoseStreak.Length, (Fmt-Usd $maxLoseStreak.PnL))
 Out-Report "               Max streak: $($maxLoseStreak.Start) to $($maxLoseStreak.End)"
 Out-Report ""
 
 Out-Report "Win streak distribution:"
 $winStreaks | Group-Object Length | Sort-Object { [int]$_.Name } | ForEach-Object {
-    $tpnl = [math]::Round(($_.Group | Measure-Object -Property PnL -Sum).Sum, 2)
-    Out-Report "  Length $($_.Name): $($_.Count) occurrences | Total PnL: `$$tpnl"
+    $tpnl = ($_.Group | Measure-Object -Property PnL -Sum).Sum
+    Out-Report ("  Length {0,2}: {1,3} occurrences | Total PnL: {2,9}" -f [int]$_.Name, $_.Count, (Fmt-Usd $tpnl))
 }
 Out-Report ""
 Out-Report "Loss streak distribution:"
 $loseStreaks | Group-Object Length | Sort-Object { [int]$_.Name } | ForEach-Object {
-    $tpnl = [math]::Round(($_.Group | Measure-Object -Property PnL -Sum).Sum, 2)
-    Out-Report "  Length $($_.Name): $($_.Count) occurrences | Total PnL: `$$tpnl"
+    $tpnl = ($_.Group | Measure-Object -Property PnL -Sum).Sum
+    Out-Report ("  Length {0,2}: {1,3} occurrences | Total PnL: {2,9}" -f [int]$_.Name, $_.Count, (Fmt-Usd $tpnl))
 }
 Out-Report ""
 
 Out-Report "Top 5 longest WIN streaks:"
 $winStreaks | Sort-Object Length -Descending | Select-Object -First 5 | ForEach-Object {
-    Out-Report "  $($_.Length) wins | PnL: `$$($_.PnL) | $($_.Start) to $($_.End)"
+    Out-Report ("  {0,2} {1,-6} | PnL: {2,9} | {3} to {4}" -f $_.Length, "wins", (Fmt-Usd $_.PnL), $_.Start, $_.End)
 }
 Out-Report ""
 Out-Report "Top 5 longest LOSS streaks:"
 $loseStreaks | Sort-Object Length -Descending | Select-Object -First 5 | ForEach-Object {
-    Out-Report "  $($_.Length) losses | PnL: `$$($_.PnL) | $($_.Start) to $($_.End)"
+    Out-Report ("  {0,2} {1,-6} | PnL: {2,9} | {3} to {4}" -f $_.Length, "losses", (Fmt-Usd $_.PnL), $_.Start, $_.End)
 }
 Out-Report ""
 
@@ -386,12 +396,12 @@ foreach ($pt in $equityCurve) {
 
 $ddTrades = ($sorted | Where-Object { $_.EntryTime -ge $maxDD_PeakTime -and $_.EntryTime -le $maxDD_TroughTime }).Count
 
-Out-Report "Max Drawdown      : `$$([math]::Round($maxDD, 2))"
-Out-Report "Peak Equity       : `$$([math]::Round($maxDD_Peak, 2)) at $maxDD_PeakTime"
-Out-Report "Trough Equity     : `$$([math]::Round($maxDD_Trough, 2)) at $maxDD_TroughTime"
+Out-Report "Max Drawdown      : $(Fmt-Usd $maxDD)"
+Out-Report "Peak Equity       : $(Fmt-Usd $maxDD_Peak) at $maxDD_PeakTime"
+Out-Report "Trough Equity     : $(Fmt-Usd $maxDD_Trough) at $maxDD_TroughTime"
 Out-Report "Trades in DD      : $ddTrades"
 Out-Report "Recovery          : $recoveryTime"
-Out-Report "Final Equity      : `$$([math]::Round($cumPnL, 2))"
+Out-Report "Final Equity      : $(Fmt-Usd $cumPnL)"
 Out-Report "Return/MaxDD      : $([math]::Round($cumPnL / [math]::Max($maxDD, 1), 2))"
 Out-Report ""
 
@@ -407,7 +417,7 @@ foreach ($instrGrp in ($sorted | Group-Object { Get-RootSymbol $_.Instrument } |
         $iDD = $iPeak - $iCum
         if ($iDD -gt $iMaxDD) { $iMaxDD = $iDD }
     }
-    Out-Report "  $sym : MaxDD = `$$([math]::Round($iMaxDD, 2)) | Final PnL = `$$([math]::Round($iCum, 2))"
+    Out-Report ("  {0,-3}: MaxDD = {1,9} | Final PnL = {2,9}" -f $sym, (Fmt-Usd $iMaxDD), (Fmt-Usd $iCum))
     $null = $instrDDData.Add(@{ sym=$sym; maxDD=[math]::Round($iMaxDD,2); finalPnl=[math]::Round($iCum,2) })
 }
 Out-Report ""
@@ -429,8 +439,8 @@ foreach ($dayGrp in $byDate | Sort-Object Name) {
     $dayPnL = [math]::Round(($dayTrades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
     $runningPnL += $dayPnL
     $dayWins = @($dayTrades | Where-Object { $_.Win }).Count
-    $dayWP   = if ($dayCnt -gt 0) { [math]::Round(100 * $dayWins / $dayCnt, 1) } else { 0 }
-    Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, "`$$dayPnL", "`$$([math]::Round($runningPnL, 2))", $dayWins, $dayWP)
+    $dayWP   = Fmt-Pct $dayWins $dayCnt
+    Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Usd $dayPnL), (Fmt-Usd $runningPnL), $dayWins, $dayWP)
     $null = $dailyData.Add(@{ date=$dt; trades=$dayCnt; dayPnl=$dayPnL; cumPnl=[math]::Round($runningPnL,2); wins=$dayWins; wp=$dayWP })
 }
 Out-Report ""
@@ -439,17 +449,19 @@ Out-Report ""
 # WRITE TEXT REPORT FILE
 # ============================================================
 $txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis-$reportDate.txt"
-# --- Last day's individual trades ---
-$lastDate = ($sorted | Select-Object -Last 1).EntryTime.Substring(0, 10)
-$lastDayTrades = $sorted | Where-Object { $_.EntryTime.Substring(0, 10) -eq $lastDate }
-Out-Report "=== INDIVIDUAL TRADES - $lastDate ===" "Green"
-Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "EntryTime", "Instrument", "Dir", "Entry", "Exit", "Qty", "PnL_Pts", "PnL_$")
-Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----")
-foreach ($t in $lastDayTrades) {
-    $dir = if ($t.Direction -eq 'Long') { 'L' } else { 'S' }
-    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, $t.EntryPrice, $t.ExitPrice, $t.Quantity, $t.PnL_Points, $t.PnL_Dollars)
+# --- Individual trades, one section per trading day ---
+# Prices and points: 1 decimal. PnL dollars: whole. Right-aligned fixed
+# decimals => decimal points line up vertically within each column.
+foreach ($dayGrp in ($byDate | Sort-Object Name)) {
+    Out-Report "=== INDIVIDUAL TRADES - $($dayGrp.Name) ===" "Green"
+    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "EntryTime", "Instrument", "Dir", "Entry", "Exit", "Qty", "PnL_Pts", "PnL_$")
+    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----")
+    foreach ($t in ($dayGrp.Group | Sort-Object EntryTime)) {
+        $dir = if ($t.Direction -eq 'Long') { 'L' } else { 'S' }
+        Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, (Fmt-Num $t.EntryPrice 1), (Fmt-Num $t.ExitPrice 1), $t.Quantity, (Fmt-Num $t.PnL_Points 1), (Fmt-Num $t.PnL_Dollars 0))
+    }
+    Out-Report ""
 }
-Out-Report ""
 $script:reportLines | Out-File -FilePath $txtFile -Encoding UTF8
 Write-Host "Text report saved: $txtFile" -ForegroundColor Cyan
 

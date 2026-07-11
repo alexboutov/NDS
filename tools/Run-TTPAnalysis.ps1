@@ -25,7 +25,7 @@ $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com", "olga.bou
 # Uncomment to add Niki:
 # $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com")
 $EmailFrom    = "alex.boutov@gmail.com"
-$EmailAppPass = "oqmy bqia arud hfmf"
+$EmailAppPass = "qqcu ksuk mseu ykqu"
 $SmtpServer   = "smtp.gmail.com"
 $SmtpPort     = 587
 
