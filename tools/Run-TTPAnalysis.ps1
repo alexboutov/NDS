@@ -40,8 +40,25 @@ if ($Attachments.Count -eq 0) {
     exit 1
 }
 
+# --- Determine VPS prefix from local IP ---
+$VpsMap = @{
+    '104.237.203.83'   = '[VPS1]'
+    '205.234.153.21'   = '[VPS2]'
+    '64.44.56.21'      = '[VPS3]'
+    '172.245.253.135'  = '[VPS4]'
+}
+
+$LocalIPs = Get-NetIPAddress -AddressFamily IPv4 |
+    Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+    Select-Object -ExpandProperty IPAddress
+
+$VpsPrefix = ''
+foreach ($ip in $LocalIPs) {
+    if ($VpsMap.ContainsKey($ip)) { $VpsPrefix = $VpsMap[$ip]; break }
+}
+
 # --- Build email body: text summary (first 30 lines of txt report) ---
-$Subject = "TTP Analysis Report - $ReportDate"
+$Subject = "$VpsPrefix TTP Analysis Report - $ReportDate".Trim()
 $Body = "TTP Trend Candles3.3 Analysis Report - $ReportDate`n`n"
 if (Test-Path $TxtReport) {
     $summaryLines = Get-Content $TxtReport | Select-Object -First 30
