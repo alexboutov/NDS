@@ -21,7 +21,7 @@ Write-Host "Running TTP analysis..." -ForegroundColor Cyan
 
 # --- VPS name from local IP ---
 $vpsMap = @{
-    "104.37.203.83"   = "VPS1"
+    "104.237.203.83"   = "VPS1"
     "205.234.153.21"  = "VPS2"
     "64.44.56.21"     = "VPS3"
     "172.245.253.135" = "VPS4"
