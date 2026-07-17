@@ -19,13 +19,27 @@ $PdfReport  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.pdf"
 Write-Host "Running TTP analysis..." -ForegroundColor Cyan
 & $AnalysisScript
 
+# --- VPS name from local IP ---
+$vpsMap = @{
+    "104.37.203.83"   = "VPS1"
+    "205.234.153.21"  = "VPS2"
+    "64.44.56.21"     = "VPS3"
+    "172.245.253.135" = "VPS4"
+}
+$vpsName = ""
+$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+       Select-Object -ExpandProperty IPAddress
+foreach ($ip in $ips) {
+    if ($vpsMap.ContainsKey($ip)) { $vpsName = "[$($vpsMap[$ip])] "; break }
+}
+
 # --- Email config ---
 # $EmailTo      = @("alex.boutov@gmail.com")
 $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com", "olga.boutov@gmail.com")
 # Uncomment to add Niki:
 # $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com")
-$EmailFrom    = "alex.boutov@gmail.com"
-$EmailAppPass = "tbuj prbk umcs edrp"
+$EmailFrom    = "nds.ttp.reports@gmail.com"
+$EmailAppPass = "vzxw howm zkws smrt"
 $SmtpServer   = "smtp.gmail.com"
 $SmtpPort     = 587
 
@@ -41,7 +55,7 @@ if ($Attachments.Count -eq 0) {
 }
 
 # --- Build email body: HTML <pre> with monospace font so columns align in mail clients ---
-$Subject = "TTP Analysis Report - $ReportDate"
+$Subject = ("$vpsName" + "TTP Analysis Report - $ReportDate").Trim()
 $BodyText = "TTP Trend Candles3.3 Analysis Report - $ReportDate`n`n"
 if (Test-Path $TxtReport) {
     $summaryLines = Get-Content $TxtReport | Select-Object -First 30
