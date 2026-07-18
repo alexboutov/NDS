@@ -56,14 +56,43 @@ if ($Attachments.Count -eq 0) {
 
 # --- Build email body: HTML <pre> with monospace font so columns align in mail clients ---
 $Subject = ("$vpsName" + "TTP Analysis Report - $ReportDate").Trim()
-$BodyText = "TTP Trend Candles3.3 Analysis Report - $ReportDate`n`n"
+
+$BodyText = "TTP Trend Candles3.3 Analysis Report - $ReportDate`r`n`r`n"
+
 if (Test-Path $TxtReport) {
-    $summaryLines = Get-Content $TxtReport | Select-Object -First 30
-    $BodyText += ($summaryLines -join "`n")
-    $BodyText += "`n`n(Full report with charts attached as PDF, TXT, and HTML)"
+    # Include everything from the top of the report through the end of the
+    # TIME OF DAY ANALYSIS section (i.e. stop at the next "=== " header).
+    $allLines = @(Get-Content $TxtReport)
+    $endIdx = $allLines.Count
+    $todIdx = -1
+    for ($i = 0; $i -lt $allLines.Count; $i++) {
+        if ($todIdx -lt 0) {
+            if ($allLines[$i] -like '=== TIME OF DAY ANALYSIS ===*') { $todIdx = $i }
+        } elseif ($allLines[$i] -like '=== *') {
+            $endIdx = $i
+            break
+        }
+    }
+    if ($todIdx -lt 0) { $endIdx = [Math]::Min(30, $allLines.Count) }  # fallback: first 30 lines
+    $summaryLines = $allLines[0..($endIdx - 1)]
+    $BodyText += (($summaryLines -join "`r`n").TrimEnd())
+    $BodyText += "`r`n`r`n(Full report with charts attached as PDF, TXT, and HTML)"
 }
+
 $BodyEscaped = [System.Net.WebUtility]::HtmlEncode($BodyText)
-$Body = "<pre style=""font-family:Consolas,'Courier New',monospace; font-size:13px;"">$BodyEscaped</pre>"
+
+# --- Colorize cash values: negative -> red, positive -> green, $0 -> unchanged ---
+$BodyColored = [regex]::Replace($BodyEscaped, '\$(-?)(\d+(?:\.\d+)?)', {
+    param($m)
+    if ($m.Groups[1].Value -eq '-') {
+        "<span style=""color:#c62828;"">$($m.Value)</span>"
+    } elseif ([double]$m.Groups[2].Value -ne 0) {
+        "<span style=""color:#2e7d32;"">$($m.Value)</span>"
+    } else {
+        $m.Value
+    }
+})
+$Body = "<pre style=""font-family:Consolas,'Courier New',monospace; font-size:13px;"">$BodyColored</pre>"
 
 # --- Send email ---
 $smtpCred = New-Object System.Management.Automation.PSCredential(
