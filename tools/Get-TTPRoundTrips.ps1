@@ -445,6 +445,27 @@ foreach ($dayGrp in $byDate | Sort-Object Name) {
 }
 Out-Report ""
 
+# --- Daily equity curve per instrument ---
+Out-Report "=== DAILY EQUITY CURVE BY INSTRUMENT ===" "Green"
+foreach ($instrGrp in ($sorted | Group-Object { Get-RootSymbol $_.Instrument } | Sort-Object Name)) {
+    Out-Report ""
+    Out-Report "--- $($instrGrp.Name) ---"
+    Out-Report $headerDay
+    Out-Report $separDay
+    $iRunningPnL = 0.0
+    foreach ($dayGrp in ($instrGrp.Group | Group-Object { $_.EntryTime.Substring(0, 10) } | Sort-Object Name)) {
+        $dt = $dayGrp.Name
+        $dayTrades = $dayGrp.Group
+        $dayCnt = $dayTrades.Count
+        $dayPnL = [math]::Round(($dayTrades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
+        $iRunningPnL += $dayPnL
+        $dayWins = @($dayTrades | Where-Object { $_.Win }).Count
+        $dayWP   = Fmt-Pct $dayWins $dayCnt
+        Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Usd $dayPnL), (Fmt-Usd $iRunningPnL), $dayWins, $dayWP)
+    }
+}
+Out-Report ""
+
 # ============================================================
 # WRITE TEXT REPORT FILE
 # ============================================================
