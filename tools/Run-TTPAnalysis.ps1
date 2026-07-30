@@ -57,12 +57,25 @@ if ($Attachments.Count -eq 0) {
 # --- Build email body: HTML <pre> with monospace font so columns align in mail clients ---
 $Subject = ("$vpsName" + "TTP Analysis Report - $ReportDate").Trim()
 
-$BodyText = "TTP Trend Candles3.3 Analysis Report - $ReportDate`r`n`r`n"
+$BodyLines = [System.Collections.Generic.List[string]]::new()
+$BodyLines.Add("TTP Trend Candles3.3 Analysis Report - $ReportDate")
+$BodyLines.Add("")
+
+# Returns a section's lines: from its "=== HEADER ===" line up to the next "=== " header
+function Get-ReportSection([string[]]$lines, [string]$header) {
+    $s = -1; $e = $lines.Count
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($s -lt 0) {
+            if ($lines[$i] -like "$header*") { $s = $i }
+        } elseif ($lines[$i] -like '=== *') { $e = $i; break }
+    }
+    if ($s -lt 0) { return @() }
+    return $lines[$s..($e - 1)]
+}
 
 if (Test-Path $TxtReport) {
-    # Include everything from the top of the report through the end of the
-    # TIME OF DAY ANALYSIS section (i.e. stop at the next "=== " header).
     $allLines = @(Get-Content $TxtReport)
+    # Everything from the top of the report through the end of TIME OF DAY ANALYSIS
     $endIdx = $allLines.Count
     $todIdx = -1
     for ($i = 0; $i -lt $allLines.Count; $i++) {
@@ -74,24 +87,59 @@ if (Test-Path $TxtReport) {
         }
     }
     if ($todIdx -lt 0) { $endIdx = [Math]::Min(30, $allLines.Count) }  # fallback: first 30 lines
-    $summaryLines = $allLines[0..($endIdx - 1)]
-    $BodyText += (($summaryLines -join "`r`n").TrimEnd())
-    $BodyText += "`r`n`r`n(Full report with charts attached as PDF, TXT, and HTML)"
+    foreach ($ln in $allLines[0..($endIdx - 1)]) { $BodyLines.Add($ln) }
+
+    # Plus the per-instrument daily equity curves (with win/loss-by-hour subsections)
+    foreach ($ln in (Get-ReportSection $allLines '=== DAILY EQUITY CURVE BY INSTRUMENT ===')) { $BodyLines.Add($ln) }
+
+    while ($BodyLines.Count -gt 0 -and $BodyLines[$BodyLines.Count - 1] -eq '') { $BodyLines.RemoveAt($BodyLines.Count - 1) }
+    $BodyLines.Add("")
+    $BodyLines.Add("(Full report with charts attached as PDF, TXT, and HTML)")
 }
 
-$BodyEscaped = [System.Net.WebUtility]::HtmlEncode($BodyText)
-
-# --- Colorize cash values: negative -> red, positive -> green, $0 -> unchanged ---
-$BodyColored = [regex]::Replace($BodyEscaped, '\$(-?)(\d+(?:\.\d+)?)', {
-    param($m)
-    if ($m.Groups[1].Value -eq '-') {
-        "<span style=""color:#c62828;"">$($m.Value)</span>"
-    } elseif ([double]$m.Groups[2].Value -ne 0) {
-        "<span style=""color:#2e7d32;"">$($m.Value)</span>"
-    } else {
-        $m.Value
+# --- Colorize: negatives (accounting parens) red bold, positives green bold ---
+# Money columns are located by position within known data-row shapes:
+#   TOD rows       "07:00  68 ..."      -> tokens 6,7,8 (PnL_$, AvgWin_$, AvgLoss_$)
+#   daily rows     "  2026-07-09 ..."   -> tokens 3,4   (DayPnL_$, Cumulative_$)
+#   hourly subrows "    07:00  2 ..."   -> tokens 3,4   (PnL_$, AvgPnL_$)
+$redStyle   = 'color:#c62828;font-weight:bold;'
+$greenStyle = 'color:#2e7d32;font-weight:bold;'
+function Colorize-Line([string]$line) {
+    $esc = [System.Net.WebUtility]::HtmlEncode($line)
+    $targets = $null
+    if     ($line -match '^\d{2}:00\s')            { $targets = @(5, 6, 7) }
+    elseif ($line -match '^\s+\d{4}-\d{2}-\d{2}\s') { $targets = @(2, 3) }
+    elseif ($line -match '^\s+\d{2}:00\s')          { $targets = @(2, 3) }
+    if ($targets) {
+        $toks = [regex]::Matches($esc, '\S+')
+        foreach ($ti in ($targets | Sort-Object -Descending)) {
+            if ($ti -ge $toks.Count) { continue }
+            $tok = $toks[$ti].Value
+            $style = $null
+            if     ($tok -match '^\(\d+(\.\d+)?\)$')                        { $style = $script:redStyle }
+            elseif ($tok -match '^\d+(\.\d+)?$' -and [double]$tok -ne 0)    { $style = $script:greenStyle }
+            if ($style) {
+                $esc = $esc.Substring(0, $toks[$ti].Index) +
+                       "<span style=""$style"">$tok</span>" +
+                       $esc.Substring($toks[$ti].Index + $tok.Length)
+            }
+        }
+        return $esc
     }
-})
+    # Non-table lines (summary, pipe sections): color $-prefixed values as before
+    return [regex]::Replace($esc, '\$(-?)(\d+(?:\.\d+)?)', {
+        param($m)
+        if ($m.Groups[1].Value -eq '-') {
+            "<span style=""color:#c62828;"">$($m.Value)</span>"
+        } elseif ([double]$m.Groups[2].Value -ne 0) {
+            "<span style=""color:#2e7d32;"">$($m.Value)</span>"
+        } else {
+            $m.Value
+        }
+    })
+}
+
+$BodyColored = (($BodyLines | ForEach-Object { Colorize-Line $_ }) -join "`r`n")
 $Body = "<pre style=""font-family:Consolas,'Courier New',monospace; font-size:13px;"">$BodyColored</pre>"
 
 # --- Send email ---

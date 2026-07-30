@@ -45,6 +45,11 @@ function Out-Report([string]$text, [string]$color = $null) {
 $script:Inv = [System.Globalization.CultureInfo]::InvariantCulture
 function Fmt-Num([double]$v, [int]$dec = 1) { $v.ToString("F$dec", $script:Inv) }
 function Fmt-Usd([double]$v, [int]$dec = 0) { '$' + $v.ToString("F$dec", $script:Inv) }
+# Accounting style for table cells: no $ sign (it moves to the header), negatives in parentheses
+function Fmt-Acc([double]$v, [int]$dec = 0) {
+    $s = [math]::Abs($v).ToString("F$dec", $script:Inv)
+    if ($v -lt 0) { "($s)" } else { $s }
+}
 function Fmt-Pct([double]$num, [double]$den) {
     if ($den -le 0) { return 0 }
     return [int][math]::Round(100 * $num / $den)
@@ -251,7 +256,7 @@ Out-Report "=== TIME OF DAY ANALYSIS ===" "Green"
 Out-Report "(Hour is based on log timestamp, i.e. local VPS/machine time)"
 Out-Report ""
 $byHour = $results | Group-Object { [int]($_.EntryTime.Substring(11, 2)) }
-$headerTod = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,11} {7,11}" -f "Hour", "Trades", "Wins", "Win%", "Losses", "PnL", "AvgWin", "AvgLoss"
+$headerTod = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,11} {7,11}" -f "Hour", "Trades", "Wins", "Win%", "Losses", "PnL_$", "AvgWin_$", "AvgLoss_$"
 $separTod  = "{0,5} {1,7} {2,5} {3,7} {4,7} {5,10} {6,11} {7,11}" -f "----", "------", "----", "----", "------", "---", "------", "-------"
 Out-Report $headerTod
 Out-Report $separTod
@@ -267,7 +272,7 @@ foreach ($grp in $byHour | Sort-Object { [int]$_.Name }) {
     $wp     = Fmt-Pct $w $cnt
     $aw     = if ($w -gt 0) { [math]::Round(($trades | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
     $al     = if ($l -gt 0) { [math]::Round(($trades | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
-    Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,7} {5,10} {6,11} {7,11}" -f $hr, $cnt, $w, $wp, $l, (Fmt-Usd $pnl), (Fmt-Usd $aw 2), (Fmt-Usd $al 2))
+    Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,7} {5,10} {6,11} {7,11}" -f $hr, $cnt, $w, $wp, $l, (Fmt-Acc $pnl), (Fmt-Acc $aw 2), (Fmt-Acc $al 2))
     $null = $todData.Add(@{ hour=$hr; trades=$cnt; wins=$w; losses=$l; wp=$wp; pnl=$pnl; avgWin=$aw; avgLoss=$al })
 }
 Out-Report ""
@@ -279,7 +284,7 @@ foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } 
     Out-Report ""
     Out-Report "--- $($instrGrp.Name) ---" "Yellow"
     $iByHour = $instrGrp.Group | Group-Object { [int]($_.EntryTime.Substring(11, 2)) }
-    Out-Report ("{0,5} {1,7} {2,5} {3,7} {4,10}" -f "Hour", "Trades", "Wins", "Win%", "PnL")
+    Out-Report ("{0,5} {1,7} {2,5} {3,7} {4,10}" -f "Hour", "Trades", "Wins", "Win%", "PnL_$")
     Out-Report ("{0,5} {1,7} {2,5} {3,7} {4,10}" -f "----", "------", "----", "----", "---")
     $iRows = [System.Collections.ArrayList]::new()
     foreach ($grp in $iByHour | Sort-Object { [int]$_.Name }) {
@@ -289,7 +294,7 @@ foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } 
         $pnl    = [math]::Round(($trades | Measure-Object -Property PnL_Dollars -Sum).Sum, 2)
         $w      = @($trades | Where-Object { $_.Win }).Count
         $wp     = Fmt-Pct $w $cnt
-        Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,10}" -f $hr, $cnt, $w, $wp, (Fmt-Usd $pnl))
+        Out-Report ("{0,5} {1,7} {2,5} {3,6}% {4,10}" -f $hr, $cnt, $w, $wp, (Fmt-Acc $pnl))
         $null = $iRows.Add(@{ hour=$hr; trades=$cnt; wins=$w; pnl=$pnl; wp=$wp })
     }
     $todByInstr[$instrGrp.Name] = $iRows
@@ -426,7 +431,7 @@ Out-Report ""
 Out-Report "=== DAILY EQUITY CURVE ===" "Green"
 $byDate = $sorted | Group-Object { $_.EntryTime.Substring(0, 10) }
 $runningPnL = 0.0
-$headerDay = "{0,12} {1,7} {2,10} {3,12} {4,5} {5,7}" -f "Date", "Trades", "Day PnL", "Cumulative", "Wins", "Win%"
+$headerDay = "{0,12} {1,7} {2,10} {3,12} {4,5} {5,7}" -f "Date", "Trades", "DayPnL_$", "Cumulative_$", "Wins", "Win%"
 $separDay  = "{0,12} {1,7} {2,10} {3,12} {4,5} {5,7}" -f "----", "------", "-------", "----------", "----", "----"
 Out-Report $headerDay
 Out-Report $separDay
@@ -440,7 +445,7 @@ foreach ($dayGrp in $byDate | Sort-Object Name) {
     $runningPnL += $dayPnL
     $dayWins = @($dayTrades | Where-Object { $_.Win }).Count
     $dayWP   = Fmt-Pct $dayWins $dayCnt
-    Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Usd $dayPnL), (Fmt-Usd $runningPnL), $dayWins, $dayWP)
+    Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Acc $dayPnL), (Fmt-Acc $runningPnL), $dayWins, $dayWP)
     $null = $dailyData.Add(@{ date=$dt; trades=$dayCnt; dayPnl=$dayPnL; cumPnl=[math]::Round($runningPnL,2); wins=$dayWins; wp=$dayWP })
 }
 Out-Report ""
@@ -461,7 +466,28 @@ foreach ($instrGrp in ($sorted | Group-Object { Get-RootSymbol $_.Instrument } |
         $iRunningPnL += $dayPnL
         $dayWins = @($dayTrades | Where-Object { $_.Win }).Count
         $dayWP   = Fmt-Pct $dayWins $dayCnt
-        Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Usd $dayPnL), (Fmt-Usd $iRunningPnL), $dayWins, $dayWP)
+        Out-Report ("{0,12} {1,7} {2,10} {3,12} {4,5} {5,6}%" -f $dt, $dayCnt, (Fmt-Acc $dayPnL), (Fmt-Acc $iRunningPnL), $dayWins, $dayWP)
+    }
+
+    # --- Sub-sections: profitable / non-profitable trades by entry hour ---
+    $headerWL = "{0,9} {1,7} {2,10} {3,11}" -f "Hour", "Trades", "PnL_$", "AvgPnL_$"
+    $separWL  = "{0,9} {1,7} {2,10} {3,11}" -f "----", "------", "---", "------"
+    foreach ($bucket in @(
+        @{ Label = "Profitable trades by entry hour:";     Trades = @($instrGrp.Group | Where-Object { $_.Win }) },
+        @{ Label = "Non-profitable trades by entry hour:"; Trades = @($instrGrp.Group | Where-Object { -not $_.Win }) }
+    )) {
+        Out-Report ""
+        Out-Report "  $($bucket.Label)"
+        Out-Report $headerWL
+        Out-Report $separWL
+        if ($bucket.Trades.Count -eq 0) { Out-Report "    (none)" }
+        foreach ($hourGrp in ($bucket.Trades | Group-Object { [int]($_.EntryTime.Substring(11, 2)) } | Sort-Object { [int]$_.Name })) {
+            $hr   = "{0:00}:00" -f [int]$hourGrp.Name
+            $cnt  = $hourGrp.Count
+            $pnl  = ($hourGrp.Group | Measure-Object -Property PnL_Dollars -Sum).Sum
+            $avg  = $pnl / $cnt
+            Out-Report ("{0,9} {1,7} {2,10} {3,11}" -f $hr, $cnt, (Fmt-Acc $pnl), (Fmt-Acc $avg 2))
+        }
     }
 }
 Out-Report ""
@@ -479,7 +505,7 @@ foreach ($dayGrp in ($byDate | Sort-Object Name)) {
     Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----")
     foreach ($t in ($dayGrp.Group | Sort-Object EntryTime)) {
         $dir = if ($t.Direction -eq 'Long') { 'L' } else { 'S' }
-        Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, (Fmt-Num $t.EntryPrice 1), (Fmt-Num $t.ExitPrice 1), $t.Quantity, (Fmt-Num $t.PnL_Points 1), (Fmt-Num $t.PnL_Dollars 0))
+        Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, (Fmt-Num $t.EntryPrice 1), (Fmt-Num $t.ExitPrice 1), $t.Quantity, (Fmt-Acc $t.PnL_Points 1), (Fmt-Acc $t.PnL_Dollars 0))
     }
     Out-Report ""
 }
