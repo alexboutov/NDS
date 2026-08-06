@@ -1,8 +1,18 @@
-*.log
-NDS_Logs/
-bin/
-obj/
+# Visual Studio build output
+[Bb]in/
+[Oo]bj/
+.vs/
 *.suo
 *.user
-.vsNinjaTrader Grid*.csv
-Strategies/.vs/ 
+
+# Logs
+*.log
+NDS_Logs/
+
+# NinjaTrader exports
+NinjaTrader Grid*.csv
+Strategies/.vs/
+
+# Secrets - never commit
+tools/appPassword.txt
+
