@@ -16,3 +16,4 @@ Strategies/.vs/
 # Secrets - never commit
 tools/appPassword.txt
 
+*.diag.log
