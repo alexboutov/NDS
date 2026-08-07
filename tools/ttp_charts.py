@@ -352,7 +352,7 @@ def compute_stats(trades):
 # ============================================================
 # PDF REPORT
 # ============================================================
-def make_summary_page(stats, accounts, report_date):
+def make_summary_page(stats, accounts, report_date, date_range):
     """Create a text-based summary page as a matplotlib figure."""
     fig, ax = plt.subplots(figsize=(11, 8.5))
     ax.axis('off')
@@ -361,16 +361,16 @@ def make_summary_page(stats, accounts, report_date):
         ('TTP Trend Candles3.3 — Analysis Report', 16, 'bold', COLORS['blue']),
         (f'{report_date}  |  {accounts}', 10, 'normal', '#888888'),
         ('', 8, 'normal', COLORS['text']),
-        ('OVERALL SUMMARY', 13, 'bold', COLORS['green']),
+        (f'SUMMARY of TTP BOT TRADES {date_range}', 13, 'bold', COLORS['green']),
         (f"Total Trades:  {stats['total']}     |     Winners:  {stats['winners']} ({stats['win_pct']}%)     |     Losers:  {stats['losers']}", 10, 'normal', COLORS['text']),
         (f"Total PnL:  ${stats['total_pnl']:,.0f}     |     Avg Win:  ${stats['avg_win']:,.0f}     |     Avg Loss:  ${stats['avg_loss']:,.0f}", 10, 'normal', COLORS['text']),
         ('', 8, 'normal', COLORS['text']),
-        ('DRAWDOWN', 13, 'bold', COLORS['green']),
+        (f'DRAWDOWN {date_range}', 13, 'bold', COLORS['green']),
         (f"Max Drawdown:  ${stats['max_dd']:,.0f}     |     Return/MaxDD:  {stats['return_maxdd']}", 10, 'normal', COLORS['text']),
         (f"Peak:  ${stats['max_dd_peak']:,.0f}  ({stats['max_dd_peak_time'][:10]})     |     Trough:  ${stats['max_dd_trough']:,.0f}  ({stats['max_dd_trough_time'][:10]})", 10, 'normal', COLORS['text']),
         (f"Trades in DD:  {stats['dd_trades']}     |     Recovery:  {stats['recovery'][:10] if 'Not' not in stats['recovery'] else 'Pending'}", 10, 'normal', COLORS['text']),
         ('', 8, 'normal', COLORS['text']),
-        ('PER-INSTRUMENT', 13, 'bold', COLORS['green']),
+        (f'PER-INSTRUMENT {date_range}', 13, 'bold', COLORS['green']),
     ]
     for sym in sorted(stats['by_instr'].keys()):
         d = stats['by_instr'][sym]
@@ -378,7 +378,7 @@ def make_summary_page(stats, accounts, report_date):
         lines.append((f"  {sym}:  {d['total']} trades  |  W: {d['wins']} ({wp}%)  L: {d['losses']}  |  PnL: ${d['pnl']:,.0f}  |  MaxDD: ${d['maxdd']:,.0f}", 9, 'normal', COLORS['text']))
 
     lines.append(('', 8, 'normal', COLORS['text']))
-    lines.append(('STREAKS', 13, 'bold', COLORS['green']))
+    lines.append((f'STREAKS {date_range}', 13, 'bold', COLORS['green']))
     ms = stats['max_win_streak']
     ml = stats['max_loss_streak']
     lines.append((f"Max Win Streak: {ms['len']} trades (${ms['pnl']:,.0f})     |     Avg: {stats['avg_win_streak']}", 10, 'normal', COLORS['text']))
@@ -397,11 +397,11 @@ def make_summary_page(stats, accounts, report_date):
     return fig
 
 
-def generate_pdf(pdf_path, figures, stats, accounts, report_date):
+def generate_pdf(pdf_path, figures, stats, accounts, report_date, date_range):
     """Write all figures to a multi-page PDF."""
     with PdfPages(pdf_path) as pdf:
         # Summary page
-        summary_fig = make_summary_page(stats, accounts, report_date)
+        summary_fig = make_summary_page(stats, accounts, report_date, date_range)
         pdf.savefig(summary_fig, facecolor=summary_fig.get_facecolor())
         plt.close(summary_fig)
 
@@ -415,7 +415,7 @@ def generate_pdf(pdf_path, figures, stats, accounts, report_date):
 # ============================================================
 # HTML REPORT
 # ============================================================
-def build_html(trades, stats, chart_images, accounts, report_date):
+def build_html(trades, stats, chart_images, accounts, report_date, date_range):
     def pnl_class(v): return 'positive' if v >= 0 else 'negative'
     def fmt_pnl(v): return f'${v:,.0f}' if abs(v) >= 1 else f'${v:.2f}'
 
@@ -477,7 +477,7 @@ def build_html(trades, stats, chart_images, accounts, report_date):
 </style></head><body>
 <h1>TTP Trend Candles3.3 Analysis</h1>
 <div class="subtitle">{report_date} &mdash; {accounts}</div>
-<h2>Overall Summary</h2>
+<h2>Summary of TTP BOT Trades {date_range}</h2>
 <div class="summary-grid">
   <div class="stat-card"><div class="label">Total Trades</div><div class="value neutral">{stats['total']}</div></div>
   <div class="stat-card"><div class="label">Win Rate</div><div class="value {pnl_class(stats['win_pct']-50)}">{stats['win_pct']}%</div></div>
@@ -488,21 +488,21 @@ def build_html(trades, stats, chart_images, accounts, report_date):
   <div class="stat-card"><div class="label">Return / MaxDD</div><div class="value neutral">{stats['return_maxdd']}</div></div>
   <div class="stat-card"><div class="label">Recovery</div><div class="value neutral">{recovery_display}</div></div>
 </div>
-<h2>Equity Curve</h2><img class="chart-img" src="data:image/png;base64,{chart_images['equity']}">
-<h2>Per-Instrument Equity</h2><img class="chart-img" src="data:image/png;base64,{chart_images['instr_equity']}">
-<h2>Daily PnL</h2><img class="chart-img" src="data:image/png;base64,{chart_images['daily_pnl']}">
-<h2>Daily Cumulative</h2><img class="chart-img" src="data:image/png;base64,{chart_images['daily_cum']}">
-<h2>Drawdown</h2><img class="chart-img" src="data:image/png;base64,{chart_images['drawdown']}">
+<h2>Equity Curve {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['equity']}">
+<h2>Per-Instrument Equity {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['instr_equity']}">
+<h2>Daily PnL {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['daily_pnl']}">
+<h2>Daily Cumulative {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['daily_cum']}">
+<h2>Drawdown {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['drawdown']}">
 <div class="summary-grid">
   <div class="stat-card"><div class="label">Peak Equity</div><div class="value positive">{fmt_pnl(stats['max_dd_peak'])} <span style="font-size:0.5em;color:#888">{stats['max_dd_peak_time'][:10]}</span></div></div>
   <div class="stat-card"><div class="label">Trough Equity</div><div class="value negative">{fmt_pnl(stats['max_dd_trough'])} <span style="font-size:0.5em;color:#888">{stats['max_dd_trough_time'][:10]}</span></div></div>
   <div class="stat-card"><div class="label">Trades in Max DD</div><div class="value neutral">{stats['dd_trades']}</div></div>
 </div>
-<h2>Per-Instrument Breakdown</h2><img class="chart-img" src="data:image/png;base64,{chart_images['instr_bars']}">
+<h2>Per-Instrument Breakdown {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['instr_bars']}">
 <table><tr><th>Symbol</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win%</th><th>PnL</th><th>MaxDD</th></tr>{instr_rows}</table>
-<h2>Time of Day</h2><img class="chart-img" src="data:image/png;base64,{chart_images['tod']}">
+<h2>Time of Day {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['tod']}">
 <table><tr><th>Hour</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win%</th><th>PnL</th><th>Avg Win</th><th>Avg Loss</th></tr>{tod_rows}</table>
-<h2>Win/Loss Streaks</h2><img class="chart-img" src="data:image/png;base64,{chart_images['streaks']}">
+<h2>Win/Loss Streaks {date_range}</h2><img class="chart-img" src="data:image/png;base64,{chart_images['streaks']}">
 <div class="summary-grid">
   <div class="stat-card"><div class="label">Max Win Streak</div><div class="value positive">{stats['max_win_streak']['len']} trades (${stats['max_win_streak']['pnl']:,.0f})</div></div>
   <div class="stat-card"><div class="label">Avg Win Streak</div><div class="value neutral">{stats['avg_win_streak']}</div></div>
@@ -513,7 +513,7 @@ def build_html(trades, stats, chart_images, accounts, report_date):
   <div class="streak-list"><h3>Top 5 Win Streaks</h3>{win_streak_items}</div>
   <div class="streak-list"><h3>Top 5 Loss Streaks</h3>{loss_streak_items}</div>
 </div>
-<h2>Daily Breakdown</h2>
+<h2>Daily Breakdown {date_range}</h2>
 <table><tr><th>Date</th><th>Trades</th><th>Wins</th><th>Win%</th><th>Day PnL</th><th>Cumulative</th></tr>{daily_rows}</table>
 </body></html>"""
     return html
@@ -536,6 +536,8 @@ def main():
     report_date = data.get('report_date', datetime.now().strftime('%B %d, %Y'))
     trades.sort(key=lambda t: t['EntryTime'])
 
+    date_range = f"from {trades[0]['EntryTime'][:10]} to {trades[-1]['EntryTime'][:10]}"
+
     print(f"Generating charts for {len(trades)} trades...")
 
     # Generate all figures (kept open for PDF)
@@ -556,14 +558,14 @@ def main():
     stats = compute_stats(trades)
 
     # Generate PDF (uses the still-open figures)
-    generate_pdf(pdf_path, list(chart_figs.values()), stats, accounts, report_date)
+    generate_pdf(pdf_path, list(chart_figs.values()), stats, accounts, report_date, date_range)
 
     # Now close all figures
     for fig in chart_figs.values():
         plt.close(fig)
 
     # Generate HTML
-    html = build_html(trades, stats, chart_images, accounts, report_date)
+    html = build_html(trades, stats, chart_images, accounts, report_date, date_range)
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"HTML report saved: {html_path}")

@@ -207,6 +207,9 @@ $results | Format-Table EntryTime, Instrument, Direction, EntryPrice, ExitPrice,
 $sorted = $results | Sort-Object EntryTime
 $reportDate = Get-Date -Format "MM-dd-yyyy"
 $reportDateDisplay = Get-Date -Format "MMMM dd, yyyy"
+$firstTradeDate = ($sorted | Select-Object -First 1).EntryTime.Substring(0, 10)
+$lastTradeDate  = ($sorted | Select-Object -Last 1).EntryTime.Substring(0, 10)
+$dateRange = "from $firstTradeDate to $lastTradeDate"
 
 Out-Report "TTP Trend Candles3.3 - Analysis Report" "Green"
 Out-Report "Generated: $reportDateDisplay"
@@ -224,7 +227,7 @@ $losePct  = Fmt-Pct $losers  $total
 $avgWin   = if ($winners -gt 0) { [math]::Round(($results | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 $avgLoss  = if ($losers -gt 0) { [math]::Round(($results | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 
-Out-Report "=== OVERALL SUMMARY ===" "Green"
+Out-Report "=== SUMMARY of TTP BOT TRADES $dateRange ===" "Green"
 Out-Report "Total Round Trips : $total"
 Out-Report "Winners           : $winners ($winPct%)"
 Out-Report "Losers            : $losers ($losePct%)"
@@ -234,7 +237,7 @@ Out-Report "Total PnL         : $(Fmt-Usd $totalPnL)"
 Out-Report ""
 
 # --- Per-instrument breakdown ---
-Out-Report "=== PER-INSTRUMENT BREAKDOWN ===" "Green"
+Out-Report "=== PER-INSTRUMENT BREAKDOWN $dateRange ===" "Green"
 $byInstrument = $results | Group-Object { Get-RootSymbol $_.Instrument }
 # Collect for HTML
 $instrData = [System.Collections.ArrayList]::new()
@@ -252,7 +255,7 @@ foreach ($grp in $byInstrument | Sort-Object Name) {
 Out-Report ""
 
 # --- Time of Day Analysis ---
-Out-Report "=== TIME OF DAY ANALYSIS ===" "Green"
+Out-Report "=== TIME OF DAY ANALYSIS $dateRange ===" "Green"
 Out-Report "(Hour is based on log timestamp, i.e. local VPS/machine time)"
 Out-Report ""
 $byHour = $results | Group-Object { [int]($_.EntryTime.Substring(11, 2)) }
@@ -278,7 +281,7 @@ foreach ($grp in $byHour | Sort-Object { [int]$_.Name }) {
 Out-Report ""
 
 # --- Per-instrument Time of Day ---
-Out-Report "=== TIME OF DAY BY INSTRUMENT ===" "Green"
+Out-Report "=== TIME OF DAY BY INSTRUMENT $dateRange ===" "Green"
 $todByInstr = @{}
 foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } | Sort-Object Name)) {
     Out-Report ""
@@ -302,7 +305,7 @@ foreach ($instrGrp in ($results | Group-Object { Get-RootSymbol $_.Instrument } 
 Out-Report ""
 
 # --- Win/Loss Streak Analysis ---
-Out-Report "=== WIN/LOSS STREAK ANALYSIS ===" "Green"
+Out-Report "=== WIN/LOSS STREAK ANALYSIS $dateRange ===" "Green"
 
 $streaks = [System.Collections.ArrayList]::new()
 $currentType = $null; $currentLen = 0; $currentPnL = 0.0; $currentStart = $null; $currentEnd = $null
@@ -367,7 +370,7 @@ $loseStreaks | Sort-Object Length -Descending | Select-Object -First 5 | ForEach
 Out-Report ""
 
 # --- Max Drawdown Analysis ---
-Out-Report "=== MAX DRAWDOWN ANALYSIS ===" "Green"
+Out-Report "=== MAX DRAWDOWN ANALYSIS $dateRange ===" "Green"
 
 $equityCurve = [System.Collections.ArrayList]::new()
 $cumPnL = 0.0
@@ -428,7 +431,7 @@ foreach ($instrGrp in ($sorted | Group-Object { Get-RootSymbol $_.Instrument } |
 Out-Report ""
 
 # --- Daily Equity Curve ---
-Out-Report "=== DAILY EQUITY CURVE ===" "Green"
+Out-Report "=== DAILY EQUITY CURVE $dateRange ===" "Green"
 $byDate = $sorted | Group-Object { $_.EntryTime.Substring(0, 10) }
 $runningPnL = 0.0
 $headerDay = "{0,12} {1,7} {2,10} {3,12} {4,5} {5,7}" -f "Date", "Trades", "DayPnL_$", "Cumulative_$", "Wins", "Win%"
@@ -451,7 +454,7 @@ foreach ($dayGrp in $byDate | Sort-Object Name) {
 Out-Report ""
 
 # --- Daily equity curve per instrument ---
-Out-Report "=== DAILY EQUITY CURVE BY INSTRUMENT ===" "Green"
+Out-Report "=== DAILY EQUITY CURVE BY INSTRUMENT $dateRange ===" "Green"
 foreach ($instrGrp in ($sorted | Group-Object { Get-RootSymbol $_.Instrument } | Sort-Object Name)) {
     Out-Report ""
     Out-Report "--- $($instrGrp.Name) ---"
