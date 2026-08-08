@@ -53,9 +53,9 @@
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="NinjaTrader.Client">
-      <HintPath>C:\Program Files\NinjaTrader 8\bin\NinjaTrader.Client.dll</HintPath>
-      <Private>True</Private>
+    <Reference Include="NinjaTrader.Client, Version=8.1.7.2, Culture=neutral, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\lib\8.1.8.1\NinjaTrader.Client.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
