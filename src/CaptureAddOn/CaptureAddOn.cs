@@ -33,7 +33,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         // Configuration (version 1: constants; edit here, then recompile F5)
         // ------------------------------------------------------------------
         private const string InstrumentFullName = "NQ SEP26";
-        private const string ServiceHost        = "127.0.0.1";
+        // private const string ServiceHost        = "127.0.0.1";
+	private const string ServiceHost        = "192.168.1.34";
         private const int    ServicePort        = 9166;
         private const int    ReconnectDelayMs   = 5000;
         private const int    QueueCapacity      = 100000;
