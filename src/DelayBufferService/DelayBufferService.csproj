@@ -55,7 +55,7 @@
   <ItemGroup>
     <Reference Include="NinjaTrader.Client, Version=8.1.7.2, Culture=neutral, processorArchitecture=AMD64">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\lib\8.1.8.1\NinjaTrader.Client.dll</HintPath>
+      <HintPath>..\..\lib\8.1.8.1\NinjaTrader.Client.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
