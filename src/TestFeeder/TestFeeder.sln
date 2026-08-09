@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestFeeder", "TestFeeder\TestFeeder.csproj", "{3E8F5C71-9A24-4D0B-B6E3-2F7A8C1D5B49}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestFeeder", "TestFeeder.csproj", "{3E8F5C71-9A24-4D0B-B6E3-2F7A8C1D5B49}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
