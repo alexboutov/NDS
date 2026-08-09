@@ -8,11 +8,12 @@ using System.Threading;
 namespace TestFeeder
 {
     /// <summary>
-    /// NDS test feeder, version 1.
+    /// NDS test feeder, version 2.
     ///
-    /// Imitates the Capture AddOn for single-machine verification of the
-    /// Delay Buffer Service: connects to the service on 127.0.0.1:9166 and
-    /// sends synthetic market data events in the established line format:
+    /// Imitates the Capture AddOn for verification of the Delay Buffer
+    /// Service: connects to the service on port 9166 of a configurable host
+    /// (default 127.0.0.1) and sends synthetic market data events in the
+    /// established line format:
     ///
     ///   TYPE|INSTRUMENT|PRICE|SIZE|PROVIDER_TIMESTAMP_TICKS|CAPTURE_TIMESTAMP_TICKS
     ///
@@ -26,11 +27,21 @@ namespace TestFeeder
     /// synthetic price. This line is the verification reference: the same
     /// price must appear on the NQDELAY chart exactly Delta (30 seconds in
     /// the development configuration) after the printed time.
+    ///
+    /// Command line (version 2 - argument order changed from version 1):
+    ///
+    ///   TestFeeder.exe [host] [stepsPerSecond]
+    ///
+    ///   host           service host, default 127.0.0.1
+    ///   stepsPerSecond price steps per second (1..1000), default 2
+    ///
+    /// Example: TestFeeder.exe 192.168.1.34 10
     /// </summary>
     internal static class Program
     {
-        // ----- Configuration (version 1) -------------------------------------
-        private const string ServiceHost = "127.0.0.1";
+        // ----- Configuration (version 2) -------------------------------------
+        // Service host, overridable as the first command-line argument.
+        private static string serviceHost = "127.0.0.1";
         private const int ServicePort = 9166;
 
         // Instrument name placed in the outgoing lines. The Delay Buffer
@@ -44,7 +55,8 @@ namespace TestFeeder
 
         // Price steps per second. Each step produces three events (B, A, L),
         // so the default of 2 steps/second sends 6 events/second.
-        // Overridable as the first command-line argument, e.g.: TestFeeder.exe 10
+        // Overridable as the second command-line argument,
+        // e.g.: TestFeeder.exe 192.168.1.34 10
         private static int stepsPerSecond = 2;
         // ---------------------------------------------------------------------
 
@@ -52,25 +64,30 @@ namespace TestFeeder
 
         private static int Main(string[] args)
         {
-            Console.WriteLine("NDS test feeder, version 1");
+            Console.WriteLine("NDS test feeder, version 2");
             Console.WriteLine("--------------------------");
 
             if (args.Length >= 1)
             {
+                serviceHost = args[0];
+            }
+
+            if (args.Length >= 2)
+            {
                 int parsed;
-                if (int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
+                if (int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
                     && parsed >= 1 && parsed <= 1000)
                 {
                     stepsPerSecond = parsed;
                 }
                 else
                 {
-                    Console.WriteLine("Invalid argument \"{0}\". Expected price steps per second (1..1000), e.g.: TestFeeder.exe 10", args[0]);
+                    Console.WriteLine("Invalid argument \"{0}\". Expected price steps per second (1..1000), e.g.: TestFeeder.exe 192.168.1.34 10", args[1]);
                     return 1;
                 }
             }
 
-            Console.WriteLine("Target service : {0}:{1}", ServiceHost, ServicePort);
+            Console.WriteLine("Target service : {0}:{1}", serviceHost, ServicePort);
             Console.WriteLine("Instrument     : {0}", Instrument);
             Console.WriteLine("Rate           : {0} price steps/second ({1} events/second)", stepsPerSecond, stepsPerSecond * 3);
             Console.WriteLine();
@@ -92,7 +109,7 @@ namespace TestFeeder
                 using (var client = new TcpClient())
                 {
                     Console.WriteLine("Connecting to the Delay Buffer Service ...");
-                    client.Connect(ServiceHost, ServicePort);
+                    client.Connect(serviceHost, ServicePort);
                     Console.WriteLine("Connected. Sending synthetic events. Press Ctrl+C to stop.");
                     Console.WriteLine();
 
