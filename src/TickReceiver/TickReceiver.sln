@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TickReceiver", "TickReceiver\TickReceiver.csproj", "{2f5b8c41-6d0a-4e2b-9c7d-1a3e5f8b0d62}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TickReceiver", "TickReceiver.csproj", "{2f5b8c41-6d0a-4e2b-9c7d-1a3e5f8b0d62}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
