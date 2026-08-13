@@ -131,6 +131,7 @@ function Close-RoundTrip($st, $bucket) {
         PnL_Points  = [math]::Round($pnlPerContract, 6)
         PnL_Dollars = [math]::Round($pnlDollars, 2)
         Win         = $pnlDollars -gt 0
+        ManualExit  = [bool]$st.ManualExit
     })
 }
 
@@ -148,8 +149,10 @@ foreach ($file in $logFiles) {
         if ($line -notmatch "Order='([^/']+)") { continue } ; $ordId = $Matches[1]
         if ($ttpOrderIds.ContainsKey($ordId)) {
             $book = $botBook
+            $isManual = $false
         } elseif ($ttpAccounts.ContainsKey($acct)) {
             $book = $discBook
+            $isManual = $true
             $script:nonTtpExecCount++
         } else {
             continue
@@ -161,6 +164,28 @@ foreach ($file in $logFiles) {
 
         while ($signed -ne 0) {
             if (-not $book.Open.ContainsKey($key)) {
+                # A manual fill with no open DISC position to close first offsets an
+                # opposite open BOT position: someone flattened the bot by hand.
+                # The bot round trip completes with a ManualExit flag instead of a
+                # fictitious DISC hedge that would leave both books unflat forever.
+                if ($isManual -and $botBook.Open.ContainsKey($key)) {
+                    $bst = $botBook.Open[$key]
+                    $oppBot = (($bst.Net -gt 0) -and ($signed -lt 0)) -or (($bst.Net -lt 0) -and ($signed -gt 0))
+                    if ($oppBot) {
+                        $closable = [math]::Min([math]::Abs($signed), [math]::Abs($bst.Net))
+                        $bst.ExitQty   += $closable
+                        $bst.ExitValue += $px * $closable
+                        $bst.ExitTime   = $timestamp
+                        $bst.ManualExit = $true
+                        $bst.Net       += if ($signed -gt 0) { $closable } else { -$closable }
+                        $signed        += if ($signed -gt 0) { -$closable } else { $closable }
+                        if ($bst.Net -eq 0) {
+                            Close-RoundTrip $bst $botBook.Trades
+                            $botBook.Open.Remove($key)
+                        }
+                        continue
+                    }
+                }
                 # Opening a new position
                 $dir = if ($signed -gt 0) { 'Long' } else { 'Short' }
                 $book.Open[$key] = @{
@@ -169,6 +194,7 @@ foreach ($file in $logFiles) {
                     EntryQty = [math]::Abs($signed); EntryValue = $px * [math]::Abs($signed)
                     EntryTime = $timestamp
                     ExitQty = 0; ExitValue = 0.0; ExitTime = $null
+                    ManualExit = $false
                 }
                 $signed = 0
             }
@@ -551,12 +577,16 @@ $txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.txt"
 # decimals => decimal points line up vertically within each column.
 foreach ($dayGrp in ($byDate | Sort-Object Name)) {
     Out-Report "=== INDIVIDUAL TRADES - $($dayGrp.Name) ===" "Green"
-    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "EntryTime", "Instrument", "Dir", "Entry", "Exit", "Qty", "PnL_Pts", "PnL_$")
-    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----")
+    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10} {8,11}" -f "EntryTime", "Instrument", "Dir", "Entry", "Exit", "Qty", "PnL_Pts", "PnL_$", "manual-exit")
+    Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10} {8,11}" -f "---------", "----------", "---", "-----", "----", "---", "-------", "-----", "-----------")
+    $dayHasManualExit = $false
     foreach ($t in ($dayGrp.Group | Sort-Object EntryTime)) {
         $dir = if ($t.Direction -eq 'Long') { 'L' } else { 'S' }
-        Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10}" -f $t.EntryTime, $t.Instrument, $dir, (Fmt-Num $t.EntryPrice 1), (Fmt-Num $t.ExitPrice 1), $t.Quantity, (Fmt-Acc $t.PnL_Points 1), (Fmt-Acc $t.PnL_Dollars 0))
+        $mx  = if ($t.ManualExit) { '*' } else { '' }
+        if ($t.ManualExit) { $dayHasManualExit = $true }
+        Out-Report ("{0,23} {1,12} {2,6} {3,10} {4,10} {5,4} {6,10} {7,10} {8,11}" -f $t.EntryTime, $t.Instrument, $dir, (Fmt-Num $t.EntryPrice 1), (Fmt-Num $t.ExitPrice 1), $t.Quantity, (Fmt-Acc $t.PnL_Points 1), (Fmt-Acc $t.PnL_Dollars 0), $mx)
     }
+    if ($dayHasManualExit) { Out-Report "  * = position closed manually, not by the strategy" }
     Out-Report ""
 }
 $script:reportLines | Out-File -FilePath $txtFile -Encoding UTF8
@@ -584,6 +614,7 @@ $tradeExport = $results | ForEach-Object {
         PnL_Points  = $_.PnL_Points
         PnL_Dollars = $_.PnL_Dollars
         Win         = $_.Win
+        ManualExit  = $_.ManualExit
     }
 }
 $jsonPayload = @{
