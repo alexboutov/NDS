@@ -14,10 +14,14 @@ $ReportDate = Get-Date -Format "MM-dd-yyyy"
 $TxtReport  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.txt"
 $HtmlReport = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.html"
 $PdfReport  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.pdf"
+$TxtReportDisc  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.txt"
+$HtmlReportDisc = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.html"
+$PdfReportDisc  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.pdf"
 
 # --- Run analysis ---
 Write-Host "Running TTP analysis..." -ForegroundColor Cyan
-& $AnalysisScript
+# & $AnalysisScript
+& $AnalysisScript -LogPath $ScriptDir
 
 # --- VPS name from local IP ---
 $vpsMap = @{
@@ -39,15 +43,18 @@ $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com", "olga.bou
 # Uncomment to add Niki:
 # $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com")
 $EmailFrom    = "nds.ttp.reports@gmail.com"
-$EmailAppPass = "vzxw howm zkws smrt"
+$EmailAppPass = "PASTE-NEW-APP-PASSWORD-HERE"
 $SmtpServer   = "smtp.gmail.com"
 $SmtpPort     = 587
 
 # --- Build attachment list ---
 $Attachments = @()
-if (Test-Path $PdfReport)  { $Attachments += $PdfReport }
-if (Test-Path $HtmlReport) { $Attachments += $HtmlReport }
-if (Test-Path $TxtReport)  { $Attachments += $TxtReport }
+if (Test-Path $PdfReport)      { $Attachments += $PdfReport }
+if (Test-Path $HtmlReport)     { $Attachments += $HtmlReport }
+if (Test-Path $TxtReport)      { $Attachments += $TxtReport }
+if (Test-Path $PdfReportDisc)  { $Attachments += $PdfReportDisc }
+if (Test-Path $HtmlReportDisc) { $Attachments += $HtmlReportDisc }
+if (Test-Path $TxtReportDisc)  { $Attachments += $TxtReportDisc }
 
 if ($Attachments.Count -eq 0) {
     Write-Warning "No report files found for $ReportDate. Skipping email."
@@ -61,7 +68,8 @@ $BodyLines = [System.Collections.Generic.List[string]]::new()
 $BodyLines.Add("TTP Trend Candles3.3 Analysis Report - $ReportDate")
 $BodyLines.Add("")
 
-# Returns a section's lines: from its "=== HEADER ===" line up to the next "=== " header
+# Returns a section's lines: from its "=== HEADER ..." line up to the next "=== " header.
+# Header match is by prefix, tolerating the "from <date> to <date>" suffix.
 function Get-ReportSection([string[]]$lines, [string]$header) {
     $s = -1; $e = $lines.Count
     for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -73,29 +81,56 @@ function Get-ReportSection([string[]]$lines, [string]$header) {
     return $lines[$s..($e - 1)]
 }
 
-if (Test-Path $TxtReport) {
-    $allLines = @(Get-Content $TxtReport)
-    # Everything from the top of the report through the end of TIME OF DAY ANALYSIS
+# Extracts the email-body portion of one report file:
+# everything from the top through the end of TIME OF DAY ANALYSIS,
+# plus the per-instrument daily equity curves.
+function Get-ReportBodyLines([string]$txtPath) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    $allLines = @(Get-Content $txtPath)
     $endIdx = $allLines.Count
     $todIdx = -1
     for ($i = 0; $i -lt $allLines.Count; $i++) {
         if ($todIdx -lt 0) {
-            if ($allLines[$i] -like '=== TIME OF DAY ANALYSIS ===*') { $todIdx = $i }
+            if ($allLines[$i] -like '=== TIME OF DAY ANALYSIS*') { $todIdx = $i }
         } elseif ($allLines[$i] -like '=== *') {
             $endIdx = $i
             break
         }
     }
     if ($todIdx -lt 0) { $endIdx = [Math]::Min(30, $allLines.Count) }  # fallback: first 30 lines
-    foreach ($ln in $allLines[0..($endIdx - 1)]) { $BodyLines.Add($ln) }
+    foreach ($ln in $allLines[0..($endIdx - 1)]) { $out.Add($ln) }
 
     # Plus the per-instrument daily equity curves (with win/loss-by-hour subsections)
-    foreach ($ln in (Get-ReportSection $allLines '=== DAILY EQUITY CURVE BY INSTRUMENT ===')) { $BodyLines.Add($ln) }
+    foreach ($ln in (Get-ReportSection $allLines '=== DAILY EQUITY CURVE BY INSTRUMENT')) { $out.Add($ln) }
 
-    while ($BodyLines.Count -gt 0 -and $BodyLines[$BodyLines.Count - 1] -eq '') { $BodyLines.RemoveAt($BodyLines.Count - 1) }
-    $BodyLines.Add("")
-    $BodyLines.Add("(Full report with charts attached as PDF, TXT, and HTML)")
+    while ($out.Count -gt 0 -and $out[$out.Count - 1] -eq '') { $out.RemoveAt($out.Count - 1) }
+    return $out
 }
+
+# --- Section 1: TTP bot ---
+$BodyLines.Add("############################################################")
+$BodyLines.Add("#                        TTP BOT                           #")
+$BodyLines.Add("############################################################")
+$BodyLines.Add("")
+if (Test-Path $TxtReport) {
+    foreach ($ln in (Get-ReportBodyLines $TxtReport)) { $BodyLines.Add($ln) }
+} else {
+    $BodyLines.Add("(No TTP bot trades in this period.)")
+}
+$BodyLines.Add("")
+
+# --- Section 2: Discretionary ---
+$BodyLines.Add("############################################################")
+$BodyLines.Add("#                     DISCRETIONARY                        #")
+$BodyLines.Add("############################################################")
+$BodyLines.Add("")
+if (Test-Path $TxtReportDisc) {
+    foreach ($ln in (Get-ReportBodyLines $TxtReportDisc)) { $BodyLines.Add($ln) }
+} else {
+    $BodyLines.Add("(No discretionary trades in this period.)")
+}
+$BodyLines.Add("")
+$BodyLines.Add("(Full reports with charts attached as PDF, TXT, and HTML)")
 
 # --- Colorize: negatives (accounting parens) red bold, positives green bold ---
 # Money columns are located by position within known data-row shapes:

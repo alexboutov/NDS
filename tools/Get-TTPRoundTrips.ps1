@@ -98,17 +98,20 @@ Write-Host "TTP Trend Candles3.3 accounts: $accountSet" -ForegroundColor Cyan
 Write-Host "TTP strategy order IDs found : $($ttpOrderIds.Count)" -ForegroundColor Cyan
 
 # ============================================================
-# STEP 2: Reconstruct round trips from STRATEGY executions only
+# STEP 2: Reconstruct round trips from executions, split into
+#         TTP BOT fills vs DISCRETIONARY (non-strategy) fills
 # ============================================================
-# Position state is rebuilt from execution fills whose Order ID belongs to
-# the strategy. Fills from any other source (manual entry, other strategies,
-# ATM) are ignored, even in the same account. Market position on an
-# execution line: Long = buy fill, Short = sell fill.
-$results          = [System.Collections.ArrayList]::new()
-$open             = @{}   # key = instr|acct -> open position state
+# Position state is rebuilt independently per book from execution fills.
+# BOT book:  fills whose Order ID was submitted by the strategy.
+# DISC book: fills in TTP accounts from any other source (manual entry,
+#            ATM, other strategies). Accounts the bot never touched in
+#            these logs are out of scope entirely.
+# Market position on an execution line: Long = buy fill, Short = sell fill.
+$botBook  = @{ Name = 'TTP BOT';       Open = @{}; Trades = [System.Collections.ArrayList]::new() }
+$discBook = @{ Name = 'DISCRETIONARY'; Open = @{}; Trades = [System.Collections.ArrayList]::new() }
 $script:nonTtpExecCount = 0  # executions in TTP accounts NOT from the strategy
 
-function Close-RoundTrip($st) {
+function Close-RoundTrip($st, $bucket) {
     if ($st.EntryQty -le 0 -or $st.ExitQty -le 0) { return }
     $entryAvg = $st.EntryValue / $st.EntryQty
     $exitAvg  = $st.ExitValue  / $st.ExitQty
@@ -116,7 +119,7 @@ function Close-RoundTrip($st) {
     if ($st.Direction -eq 'Long') { $pnlPerContract = $exitAvg - $entryAvg }
     else                          { $pnlPerContract = $entryAvg - $exitAvg }
     $pnlDollars = $pnlPerContract * $pv * $st.ExitQty
-    $null = $script:results.Add([PSCustomObject]@{
+    $null = $bucket.Add([PSCustomObject]@{
         EntryTime   = $st.EntryTime
         ExitTime    = $st.ExitTime
         Instrument  = $st.Instrument
@@ -141,10 +144,14 @@ foreach ($file in $logFiles) {
         if ($line -notmatch "Quantity=(\d+)")         { continue } ; $qty   = [int]$Matches[1]
         if ($line -notmatch "Market position=(\w+)")  { continue } ; $side  = $Matches[1]
 
-        # --- Order-ID attribution: the bot-only filter ---
+        # --- Order-ID attribution: route each fill to its book ---
         if ($line -notmatch "Order='([^/']+)") { continue } ; $ordId = $Matches[1]
-        if (-not $ttpOrderIds.ContainsKey($ordId)) {
-            if ($ttpAccounts.ContainsKey($acct)) { $script:nonTtpExecCount++ }
+        if ($ttpOrderIds.ContainsKey($ordId)) {
+            $book = $botBook
+        } elseif ($ttpAccounts.ContainsKey($acct)) {
+            $book = $discBook
+            $script:nonTtpExecCount++
+        } else {
             continue
         }
 
@@ -153,10 +160,10 @@ foreach ($file in $logFiles) {
         $signed = if ($side -eq 'Long') { $qty } else { -$qty }
 
         while ($signed -ne 0) {
-            if (-not $open.ContainsKey($key)) {
+            if (-not $book.Open.ContainsKey($key)) {
                 # Opening a new position
                 $dir = if ($signed -gt 0) { 'Long' } else { 'Short' }
-                $open[$key] = @{
+                $book.Open[$key] = @{
                     Instrument = $instr; Account = $acct; Direction = $dir
                     Net = $signed
                     EntryQty = [math]::Abs($signed); EntryValue = $px * [math]::Abs($signed)
@@ -166,7 +173,7 @@ foreach ($file in $logFiles) {
                 $signed = 0
             }
             else {
-                $st = $open[$key]
+                $st = $book.Open[$key]
                 $sameDir = (($st.Net -gt 0) -and ($signed -gt 0)) -or (($st.Net -lt 0) -and ($signed -lt 0))
                 if ($sameDir) {
                     # Scale-in
@@ -184,8 +191,8 @@ foreach ($file in $logFiles) {
                     $st.Net       += if ($signed -gt 0) { $closable } else { -$closable }
                     $signed       += if ($signed -gt 0) { -$closable } else { $closable }
                     if ($st.Net -eq 0) {
-                        Close-RoundTrip $st
-                        $open.Remove($key)
+                        Close-RoundTrip $st $book.Trades
+                        $book.Open.Remove($key)
                         # any remaining $signed re-enters the loop and opens a reversal position
                     }
                 }
@@ -194,21 +201,49 @@ foreach ($file in $logFiles) {
     }
 }
 
-foreach ($st in $open.Values) {
-    Write-Warning "Open position not flat at end of logs: $($st.Instrument) $($st.Account) entry=$($st.EntryTime) net=$($st.Net) - skipped."
+foreach ($book in @($botBook, $discBook)) {
+    foreach ($st in $book.Open.Values) {
+        Write-Warning "[$($book.Name)] Open position not flat at end of logs: $($st.Instrument) $($st.Account) entry=$($st.EntryTime) net=$($st.Net) - skipped."
+    }
 }
 
 if ($nonTtpExecCount -gt 0) {
-    Write-Host "Excluded $nonTtpExecCount non-strategy execution(s) in TTP accounts (manual/other)." -ForegroundColor Yellow
+    Write-Host "Routed $nonTtpExecCount non-strategy execution(s) in TTP accounts to the DISCRETIONARY book." -ForegroundColor Yellow
 }
 
-if ($results.Count -eq 0) {
-    Write-Host "`nNo complete round trips found." -ForegroundColor Yellow
+if ($botBook.Trades.Count -eq 0 -and $discBook.Trades.Count -eq 0) {
+    Write-Host "`nNo complete round trips found in either book." -ForegroundColor Yellow
     exit 0
 }
 
+# ============================================================
+# REPORT SETS: run the full analysis once per book
+# ============================================================
+$reportSets = @(
+    @{ Label = 'TTP BOT'
+       Title = 'TTP Trend Candles3.3'
+       Trades = $botBook.Trades
+       Tag = ''
+       FilterNote = "TTP strategy fills only ($nonTtpExecCount non-strategy execution(s) in these accounts routed to the DISCRETIONARY report)" },
+    @{ Label = 'DISCRETIONARY'
+       Title = 'DISCRETIONARY (manual trades in TTP accounts)'
+       Trades = $discBook.Trades
+       Tag = '-DISC'
+       FilterNote = "Non-strategy (manual) fills in TTP accounts only" }
+)
+
+foreach ($set in $reportSets) {
+
+$results = @($set.Trades)
+if ($results.Count -eq 0) {
+    Write-Host "`nNo complete $($set.Label) round trips found - skipping that report set." -ForegroundColor Yellow
+    continue
+}
+$script:reportLines = [System.Collections.ArrayList]::new()
+
+
 # --- Individual trades to console only (not in report file) ---
-Write-Host "`n=== INDIVIDUAL ROUND TRIPS ===" -ForegroundColor Green
+Write-Host "`n=== INDIVIDUAL $($set.Label) ROUND TRIPS ===" -ForegroundColor Green
 $results | Format-Table EntryTime, Instrument, Direction, EntryPrice, ExitPrice, Quantity, PnL_Points, PnL_Dollars, Win -AutoSize
 
 # ============================================================
@@ -222,11 +257,11 @@ $firstTradeDate = ($sorted | Select-Object -First 1).EntryTime.Substring(0, 10)
 $lastTradeDate  = ($sorted | Select-Object -Last 1).EntryTime.Substring(0, 10)
 $dateRange = "from $firstTradeDate to $lastTradeDate"
 
-Out-Report "TTP Trend Candles3.3 - Analysis Report" "Green"
+Out-Report "$($set.Title) - Analysis Report" "Green"
 Out-Report "Generated: $reportDateDisplay"
 Out-Report "Log path:  $LogPath"
 Out-Report "Accounts:  $accountSet"
-Out-Report "Filter:    TTP strategy fills only ($nonTtpExecCount non-strategy execution(s) in these accounts excluded)"
+Out-Report "Filter:    $($set.FilterNote)"
 Out-Report ""
 
 # --- Overall Summary ---
@@ -239,7 +274,7 @@ $losePct  = Fmt-Pct $losers  $total
 $avgWin   = if ($winners -gt 0) { [math]::Round(($results | Where-Object { $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 $avgLoss  = if ($losers -gt 0) { [math]::Round(($results | Where-Object { -not $_.Win } | Measure-Object -Property PnL_Dollars -Average).Average, 2) } else { 0 }
 
-Out-Report "=== SUMMARY of TTP BOT TRADES $dateRange ===" "Green"
+Out-Report "=== SUMMARY of $($set.Label) TRADES $dateRange ===" "Green"
 Out-Report "Total Round Trips : $total"
 Out-Report "Winners           : $winners ($winPct%)"
 Out-Report "Losers            : $losers ($losePct%)"
@@ -510,7 +545,7 @@ Out-Report ""
 # ============================================================
 # WRITE TEXT REPORT FILE
 # ============================================================
-$txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis-$reportDate.txt"
+$txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.txt"
 # --- Individual trades, one section per trading day ---
 # Prices and points: 1 decimal. PnL dollars: whole. Right-aligned fixed
 # decimals => decimal points line up vertically within each column.
@@ -530,8 +565,8 @@ Write-Host "Text report saved: $txtFile" -ForegroundColor Cyan
 # ============================================================
 # GENERATE HTML REPORT WITH CHARTS (via Python/matplotlib)
 # ============================================================
-$htmlFile = Join-Path $LogPath "TTPRoundTripsAnalysis-$reportDate.html"
-$jsonFile = Join-Path $LogPath "TTPRoundTripsAnalysis-$reportDate.json"
+$htmlFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.html"
+$jsonFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.json"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pyScript  = Join-Path $scriptDir "ttp_charts.py"
 
@@ -555,6 +590,8 @@ $jsonPayload = @{
     trades      = @($tradeExport)
     accounts    = $accountSet
     report_date = $reportDateDisplay
+    label       = $set.Label
+    title       = $set.Title
 } | ConvertTo-Json -Depth 5
 
 $jsonPayload | Out-File -FilePath $jsonFile -Encoding UTF8
@@ -590,3 +627,5 @@ if (-not $pythonExe) {
 # Clean up temp JSON
 if (Test-Path $jsonFile) { Remove-Item $jsonFile -Force }
 Write-Host ""
+
+} # end foreach ($set in $reportSets)

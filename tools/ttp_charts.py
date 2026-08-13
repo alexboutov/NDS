@@ -352,16 +352,16 @@ def compute_stats(trades):
 # ============================================================
 # PDF REPORT
 # ============================================================
-def make_summary_page(stats, accounts, report_date, date_range):
+def make_summary_page(stats, accounts, report_date, date_range, title='TTP Trend Candles3.3', label='TTP BOT'):
     """Create a text-based summary page as a matplotlib figure."""
     fig, ax = plt.subplots(figsize=(11, 8.5))
     ax.axis('off')
 
     lines = [
-        ('TTP Trend Candles3.3 — Analysis Report', 16, 'bold', COLORS['blue']),
+        (f'{title} — Analysis Report', 16, 'bold', COLORS['blue']),
         (f'{report_date}  |  {accounts}', 10, 'normal', '#888888'),
         ('', 8, 'normal', COLORS['text']),
-        (f'SUMMARY of TTP BOT TRADES {date_range}', 13, 'bold', COLORS['green']),
+        (f'SUMMARY of {label} TRADES {date_range}', 13, 'bold', COLORS['green']),
         (f"Total Trades:  {stats['total']}     |     Winners:  {stats['winners']} ({stats['win_pct']}%)     |     Losers:  {stats['losers']}", 10, 'normal', COLORS['text']),
         (f"Total PnL:  ${stats['total_pnl']:,.0f}     |     Avg Win:  ${stats['avg_win']:,.0f}     |     Avg Loss:  ${stats['avg_loss']:,.0f}", 10, 'normal', COLORS['text']),
         ('', 8, 'normal', COLORS['text']),
@@ -397,11 +397,11 @@ def make_summary_page(stats, accounts, report_date, date_range):
     return fig
 
 
-def generate_pdf(pdf_path, figures, stats, accounts, report_date, date_range):
+def generate_pdf(pdf_path, figures, stats, accounts, report_date, date_range, title='TTP Trend Candles3.3', label='TTP BOT'):
     """Write all figures to a multi-page PDF."""
     with PdfPages(pdf_path) as pdf:
         # Summary page
-        summary_fig = make_summary_page(stats, accounts, report_date, date_range)
+        summary_fig = make_summary_page(stats, accounts, report_date, date_range, title, label)
         pdf.savefig(summary_fig, facecolor=summary_fig.get_facecolor())
         plt.close(summary_fig)
 
@@ -415,7 +415,7 @@ def generate_pdf(pdf_path, figures, stats, accounts, report_date, date_range):
 # ============================================================
 # HTML REPORT
 # ============================================================
-def build_html(trades, stats, chart_images, accounts, report_date, date_range):
+def build_html(trades, stats, chart_images, accounts, report_date, date_range, title='TTP Trend Candles3.3', label='TTP BOT'):
     def pnl_class(v): return 'positive' if v >= 0 else 'negative'
     def fmt_pnl(v): return f'${v:,.0f}' if abs(v) >= 1 else f'${v:.2f}'
 
@@ -452,7 +452,7 @@ def build_html(trades, stats, chart_images, accounts, report_date, date_range):
 
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TTP Trend Candles3.3 - {report_date}</title>
+<title>{title} - {report_date}</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
   body{{font-family:'Segoe UI',system-ui,sans-serif;background:{COLORS['bg']};color:#e0e0e0;padding:20px;max-width:1200px;margin:0 auto}}
@@ -475,9 +475,9 @@ def build_html(trades, stats, chart_images, accounts, report_date, date_range):
   .streak-list h3{{font-size:0.95em;color:#aaa;margin-bottom:8px}}
   .streak-item{{font-size:0.82em;padding:3px 0;color:#ccc}}
 </style></head><body>
-<h1>TTP Trend Candles3.3 Analysis</h1>
+<h1>{title} Analysis</h1>
 <div class="subtitle">{report_date} &mdash; {accounts}</div>
-<h2>Summary of TTP BOT Trades {date_range}</h2>
+<h2>Summary of {label} Trades {date_range}</h2>
 <div class="summary-grid">
   <div class="stat-card"><div class="label">Total Trades</div><div class="value neutral">{stats['total']}</div></div>
   <div class="stat-card"><div class="label">Win Rate</div><div class="value {pnl_class(stats['win_pct']-50)}">{stats['win_pct']}%</div></div>
@@ -533,6 +533,8 @@ def main():
 
     trades = data['trades']
     accounts = data.get('accounts', '')
+    title = data.get('title', 'TTP Trend Candles3.3')
+    label = data.get('label', 'TTP BOT')
     report_date = data.get('report_date', datetime.now().strftime('%B %d, %Y'))
     trades.sort(key=lambda t: t['EntryTime'])
 
@@ -558,14 +560,14 @@ def main():
     stats = compute_stats(trades)
 
     # Generate PDF (uses the still-open figures)
-    generate_pdf(pdf_path, list(chart_figs.values()), stats, accounts, report_date, date_range)
+    generate_pdf(pdf_path, list(chart_figs.values()), stats, accounts, report_date, date_range, title, label)
 
     # Now close all figures
     for fig in chart_figs.values():
         plt.close(fig)
 
     # Generate HTML
-    html = build_html(trades, stats, chart_images, accounts, report_date, date_range)
+    html = build_html(trades, stats, chart_images, accounts, report_date, date_range, title, label)
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"HTML report saved: {html_path}")
