@@ -56,7 +56,7 @@ function Fmt-Pct([double]$num, [double]$den) {
 }
 
 # ============================================================
-# STEP 1: Discover TTP accounts
+# STEP 1: Discover TTP strategy ORDER IDs (and their accounts)
 # ============================================================
 $logFiles = Get-ChildItem -Path $LogPath -Filter "log.*.txt" |
     Where-Object { $_.Name -notmatch '\.en\.txt$' } |
@@ -69,126 +69,137 @@ if (-not $logFiles) {
 
 Write-Host "Processing $($logFiles.Count) log file(s)..." -ForegroundColor Cyan
 
+# The strategy trace logs "... 'TTP Trend Candles3.3/<id>' submitting order",
+# followed by an order-state line containing Order='<orderId>/<account>'.
+# Collecting order IDs lets us attribute each fill to the bot specifically,
+# so DISCRETIONARY/MANUAL trades in the same account are EXCLUDED.
+$ttpOrderIds = @{}
 $ttpAccounts = @{}
 
 foreach ($file in $logFiles) {
     $lines = Get-Content $file.FullName
     for ($i = 0; $i -lt $lines.Count - 1; $i++) {
         if ($lines[$i] -match "NinjaScript strategy 'TTP Trend Candles3\.3/\d+' submitting order") {
-            if ($lines[$i+1] -match "Order='[^/]+/([^']+)'") {
-                $ttpAccounts[$Matches[1]] = $true
+            if ($lines[$i+1] -match "Order='([^/']+)/([^']+)'") {
+                $ttpOrderIds[$Matches[1]] = $true
+                $ttpAccounts[$Matches[2]] = $true
             }
         }
     }
 }
 
-if ($ttpAccounts.Count -eq 0) {
+if ($ttpOrderIds.Count -eq 0) {
     Write-Error "No TTP Trend Candles3.3 orders found in any log file."
     exit 1
 }
 
-$accountSet = $ttpAccounts.Keys -join ', '
+$accountSet = ($ttpAccounts.Keys | Sort-Object) -join ', '
 Write-Host "TTP Trend Candles3.3 accounts: $accountSet" -ForegroundColor Cyan
+Write-Host "TTP strategy order IDs found : $($ttpOrderIds.Count)" -ForegroundColor Cyan
 
 # ============================================================
-# STEP 2: Extract position-change lines
+# STEP 2: Reconstruct round trips from STRATEGY executions only
 # ============================================================
-$roundTrips = [System.Collections.ArrayList]::new()
-$openPositions = @{}
+# Position state is rebuilt from execution fills whose Order ID belongs to
+# the strategy. Fills from any other source (manual entry, other strategies,
+# ATM) are ignored, even in the same account. Market position on an
+# execution line: Long = buy fill, Short = sell fill.
+$results          = [System.Collections.ArrayList]::new()
+$open             = @{}   # key = instr|acct -> open position state
+$script:nonTtpExecCount = 0  # executions in TTP accounts NOT from the strategy
 
-foreach ($file in $logFiles) {
-    foreach ($line in (Get-Content $file.FullName)) {
-        if ($line -notmatch '\|1\|64\|') { continue }
-
-        if ($line -notmatch "Instrument='([^']+)'")       { continue } ; $instr  = $Matches[1]
-        if ($line -notmatch "Account='([^']+)'")           { continue } ; $acct   = $Matches[1]
-        if (-not $ttpAccounts.ContainsKey($acct))          { continue }
-        if ($line -notmatch "Average price=([\d.]+)")      { continue } ; $avgPx  = [double]$Matches[1]
-        if ($line -notmatch "Quantity=(\d+)")               { continue } ; $qty    = [int]$Matches[1]
-        if ($line -notmatch "Market position=(\w+)")       { continue } ; $mktPos = $Matches[1]
-        if ($line -notmatch "Operation=(\S+)")              { continue } ; $oper   = $Matches[1]
-
-        $timestamp = $line.Substring(0, 23)
-        $key = "$instr|$acct"
-
-        if ($oper -eq 'Operation_Add') {
-            $openPositions[$key] = @{
-                Instrument = $instr; Account = $acct; Direction = $mktPos
-                EntryPrice = $avgPx; EntryQty = $qty; EntryTime = $timestamp
-            }
-        }
-        elseif ($mktPos -eq 'Flat' -and $oper -eq 'Remove') {
-            if ($openPositions.ContainsKey($key)) {
-                $openPositions[$key]['ExitTime'] = $timestamp
-                $null = $roundTrips.Add($openPositions[$key].Clone())
-                $openPositions.Remove($key)
-            }
-        }
-    }
-}
-
-# ============================================================
-# STEP 3: Resolve exit prices from execution lines
-# ============================================================
-foreach ($file in $logFiles) {
-    foreach ($line in (Get-Content $file.FullName)) {
-        if ($line -notmatch '\|1\|8\|Execution=') { continue }
-
-        if ($line -notmatch "Instrument='([^']+)'")       { continue } ; $instr  = $Matches[1]
-        if ($line -notmatch "Account='([^']+)'")           { continue } ; $acct   = $Matches[1]
-        if (-not $ttpAccounts.ContainsKey($acct))          { continue }
-        if ($line -notmatch "Price=([\d.]+)")              { continue } ; $px     = [double]$Matches[1]
-        if ($line -notmatch "Quantity=(\d+)")               { continue } ; $qty    = [int]$Matches[1]
-        if ($line -notmatch "Market position=(\w+)")       { continue } ; $mktPos = $Matches[1]
-
-        $timestamp = $line.Substring(0, 23)
-
-        foreach ($rt in $roundTrips) {
-            if ($rt.Instrument -ne $instr -or $rt.Account -ne $acct) { continue }
-            if ($timestamp -le $rt.EntryTime -or $timestamp -gt $rt.ExitTime) { continue }
-            $isExitFill = ($rt.Direction -eq 'Short' -and $mktPos -eq 'Long') -or
-                          ($rt.Direction -eq 'Long'  -and $mktPos -eq 'Short')
-            if (-not $isExitFill) { continue }
-            if (-not $rt.ContainsKey('ExitFillQty')) {
-                $rt['ExitFillQty'] = 0; $rt['ExitFillValue'] = 0.0
-            }
-            $rt['ExitFillQty']   += $qty
-            $rt['ExitFillValue'] += $px * $qty
-        }
-    }
-}
-
-# ============================================================
-# STEP 4: Compute PnL
-# ============================================================
-$results = [System.Collections.ArrayList]::new()
-
-foreach ($rt in $roundTrips) {
-    if ($rt.ExitFillQty -gt 0) {
-        $exitAvgPx = $rt.ExitFillValue / $rt.ExitFillQty
-    } else {
-        Write-Warning "No exit fills found for $($rt.Instrument) $($rt.Account) entry=$($rt.EntryTime)"
-        continue
-    }
-    $pv = Get-PointValue $rt.Instrument
-    $tradedQty = $rt.ExitFillQty
-    if ($rt.Direction -eq 'Long') { $pnlPerContract = $exitAvgPx - $rt.EntryPrice }
-    else                          { $pnlPerContract = $rt.EntryPrice - $exitAvgPx }
-    $pnlDollars = $pnlPerContract * $pv * $tradedQty
-
-    $null = $results.Add([PSCustomObject]@{
-        EntryTime   = $rt.EntryTime
-        ExitTime    = $rt.ExitTime
-        Instrument  = $rt.Instrument
-        Account     = $rt.Account
-        Direction   = $rt.Direction
-        EntryPrice  = $rt.EntryPrice
-        ExitPrice   = [math]::Round($exitAvgPx, 6)
-        Quantity    = $tradedQty
+function Close-RoundTrip($st) {
+    if ($st.EntryQty -le 0 -or $st.ExitQty -le 0) { return }
+    $entryAvg = $st.EntryValue / $st.EntryQty
+    $exitAvg  = $st.ExitValue  / $st.ExitQty
+    $pv = Get-PointValue $st.Instrument
+    if ($st.Direction -eq 'Long') { $pnlPerContract = $exitAvg - $entryAvg }
+    else                          { $pnlPerContract = $entryAvg - $exitAvg }
+    $pnlDollars = $pnlPerContract * $pv * $st.ExitQty
+    $null = $script:results.Add([PSCustomObject]@{
+        EntryTime   = $st.EntryTime
+        ExitTime    = $st.ExitTime
+        Instrument  = $st.Instrument
+        Account     = $st.Account
+        Direction   = $st.Direction
+        EntryPrice  = [math]::Round($entryAvg, 6)
+        ExitPrice   = [math]::Round($exitAvg, 6)
+        Quantity    = $st.ExitQty
         PnL_Points  = [math]::Round($pnlPerContract, 6)
         PnL_Dollars = [math]::Round($pnlDollars, 2)
         Win         = $pnlDollars -gt 0
     })
+}
+
+foreach ($file in $logFiles) {
+    foreach ($line in (Get-Content $file.FullName)) {
+        if ($line -notmatch '\|1\|8\|Execution=') { continue }
+
+        if ($line -notmatch "Instrument='([^']+)'")   { continue } ; $instr = $Matches[1]
+        if ($line -notmatch "Account='([^']+)'")      { continue } ; $acct  = $Matches[1]
+        if ($line -notmatch "Price=([\d.]+)")         { continue } ; $px    = [double]$Matches[1]
+        if ($line -notmatch "Quantity=(\d+)")         { continue } ; $qty   = [int]$Matches[1]
+        if ($line -notmatch "Market position=(\w+)")  { continue } ; $side  = $Matches[1]
+
+        # --- Order-ID attribution: the bot-only filter ---
+        if ($line -notmatch "Order='([^/']+)") { continue } ; $ordId = $Matches[1]
+        if (-not $ttpOrderIds.ContainsKey($ordId)) {
+            if ($ttpAccounts.ContainsKey($acct)) { $script:nonTtpExecCount++ }
+            continue
+        }
+
+        $timestamp = $line.Substring(0, 23)
+        $key    = "$instr|$acct"
+        $signed = if ($side -eq 'Long') { $qty } else { -$qty }
+
+        while ($signed -ne 0) {
+            if (-not $open.ContainsKey($key)) {
+                # Opening a new position
+                $dir = if ($signed -gt 0) { 'Long' } else { 'Short' }
+                $open[$key] = @{
+                    Instrument = $instr; Account = $acct; Direction = $dir
+                    Net = $signed
+                    EntryQty = [math]::Abs($signed); EntryValue = $px * [math]::Abs($signed)
+                    EntryTime = $timestamp
+                    ExitQty = 0; ExitValue = 0.0; ExitTime = $null
+                }
+                $signed = 0
+            }
+            else {
+                $st = $open[$key]
+                $sameDir = (($st.Net -gt 0) -and ($signed -gt 0)) -or (($st.Net -lt 0) -and ($signed -lt 0))
+                if ($sameDir) {
+                    # Scale-in
+                    $st.Net        += $signed
+                    $st.EntryQty   += [math]::Abs($signed)
+                    $st.EntryValue += $px * [math]::Abs($signed)
+                    $signed = 0
+                }
+                else {
+                    # Exit fill (possibly partial, possibly reversing through flat)
+                    $closable = [math]::Min([math]::Abs($signed), [math]::Abs($st.Net))
+                    $st.ExitQty   += $closable
+                    $st.ExitValue += $px * $closable
+                    $st.ExitTime   = $timestamp
+                    $st.Net       += if ($signed -gt 0) { $closable } else { -$closable }
+                    $signed       += if ($signed -gt 0) { -$closable } else { $closable }
+                    if ($st.Net -eq 0) {
+                        Close-RoundTrip $st
+                        $open.Remove($key)
+                        # any remaining $signed re-enters the loop and opens a reversal position
+                    }
+                }
+            }
+        }
+    }
+}
+
+foreach ($st in $open.Values) {
+    Write-Warning "Open position not flat at end of logs: $($st.Instrument) $($st.Account) entry=$($st.EntryTime) net=$($st.Net) - skipped."
+}
+
+if ($nonTtpExecCount -gt 0) {
+    Write-Host "Excluded $nonTtpExecCount non-strategy execution(s) in TTP accounts (manual/other)." -ForegroundColor Yellow
 }
 
 if ($results.Count -eq 0) {
@@ -215,6 +226,7 @@ Out-Report "TTP Trend Candles3.3 - Analysis Report" "Green"
 Out-Report "Generated: $reportDateDisplay"
 Out-Report "Log path:  $LogPath"
 Out-Report "Accounts:  $accountSet"
+Out-Report "Filter:    TTP strategy fills only ($nonTtpExecCount non-strategy execution(s) in these accounts excluded)"
 Out-Report ""
 
 # --- Overall Summary ---
