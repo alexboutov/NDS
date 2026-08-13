@@ -249,12 +249,12 @@ $reportSets = @(
     @{ Label = 'TTP BOT'
        Title = 'TTP Trend Candles3.3'
        Trades = $botBook.Trades
-       Tag = ''
+       FilePrefix = 'TTPRoundTripsAnalysis'
        FilterNote = "TTP strategy fills only ($nonTtpExecCount non-strategy execution(s) in these accounts routed to the DISCRETIONARY report)" },
     @{ Label = 'DISCRETIONARY'
        Title = 'DISCRETIONARY (manual trades in TTP accounts)'
        Trades = $discBook.Trades
-       Tag = '-DISC'
+       FilePrefix = 'DISCRoundTripsAnalysis'
        FilterNote = "Non-strategy (manual) fills in TTP accounts only" }
 )
 
@@ -571,7 +571,7 @@ Out-Report ""
 # ============================================================
 # WRITE TEXT REPORT FILE
 # ============================================================
-$txtFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.txt"
+$txtFile = Join-Path $LogPath "$($set.FilePrefix)-$reportDate.txt"
 # --- Individual trades, one section per trading day ---
 # Prices and points: 1 decimal. PnL dollars: whole. Right-aligned fixed
 # decimals => decimal points line up vertically within each column.
@@ -595,8 +595,8 @@ Write-Host "Text report saved: $txtFile" -ForegroundColor Cyan
 # ============================================================
 # GENERATE HTML REPORT WITH CHARTS (via Python/matplotlib)
 # ============================================================
-$htmlFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.html"
-$jsonFile = Join-Path $LogPath "TTPRoundTripsAnalysis$($set.Tag)-$reportDate.json"
+$htmlFile = Join-Path $LogPath "$($set.FilePrefix)-$reportDate.html"
+$jsonFile = Join-Path $LogPath "$($set.FilePrefix)-$reportDate.json"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pyScript  = Join-Path $scriptDir "ttp_charts.py"
 

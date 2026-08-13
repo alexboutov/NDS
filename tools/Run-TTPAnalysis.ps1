@@ -14,14 +14,13 @@ $ReportDate = Get-Date -Format "MM-dd-yyyy"
 $TxtReport  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.txt"
 $HtmlReport = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.html"
 $PdfReport  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-$ReportDate.pdf"
-$TxtReportDisc  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.txt"
-$HtmlReportDisc = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.html"
-$PdfReportDisc  = Join-Path $ScriptDir "TTPRoundTripsAnalysis-DISC-$ReportDate.pdf"
+$TxtReportDisc  = Join-Path $ScriptDir "DISCRoundTripsAnalysis-$ReportDate.txt"
+$HtmlReportDisc = Join-Path $ScriptDir "DISCRoundTripsAnalysis-$ReportDate.html"
+$PdfReportDisc  = Join-Path $ScriptDir "DISCRoundTripsAnalysis-$ReportDate.pdf"
 
 # --- Run analysis ---
 Write-Host "Running TTP analysis..." -ForegroundColor Cyan
-# & $AnalysisScript
-& $AnalysisScript -LogPath $ScriptDir
+& $AnalysisScript
 
 # --- VPS name from local IP ---
 $vpsMap = @{
@@ -43,7 +42,7 @@ $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com", "olga.bou
 # Uncomment to add Niki:
 # $EmailTo      = @("alex.boutov@gmail.com", "615thstreetdev@gmail.com")
 $EmailFrom    = "nds.ttp.reports@gmail.com"
-$EmailAppPass = "PASTE-NEW-APP-PASSWORD-HERE"
+$EmailAppPass = "vzxw howm zkws smrt"
 $SmtpServer   = "smtp.gmail.com"
 $SmtpPort     = 587
 
@@ -205,7 +204,7 @@ try {
 }
 
 # --- Cleanup: remove report files older than 7 days ---
-Get-ChildItem -Path $ScriptDir -Filter "TTPRoundTripsAnalysis-*" |
+Get-ChildItem -Path $ScriptDir -Filter "*RoundTripsAnalysis-*" |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
     ForEach-Object {
         Remove-Item $_.FullName -Force
