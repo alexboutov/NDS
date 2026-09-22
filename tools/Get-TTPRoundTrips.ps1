@@ -79,7 +79,7 @@ $ttpAccounts = @{}
 foreach ($file in $logFiles) {
     $lines = Get-Content $file.FullName
     for ($i = 0; $i -lt $lines.Count - 1; $i++) {
-        if ($lines[$i] -match "NinjaScript strategy 'TTP Trend Candles3\.3/\d+' submitting order") {
+	 if ($lines[$i] -match "NinjaScript strategy 'TTP Trend Candles3\.3/\d+' submitting order") {
             if ($lines[$i+1] -match "Order='([^/']+)/([^']+)'") {
                 $ttpOrderIds[$Matches[1]] = $true
                 $ttpAccounts[$Matches[2]] = $true

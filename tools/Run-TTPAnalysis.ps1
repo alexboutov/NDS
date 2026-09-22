@@ -61,7 +61,7 @@ if ($Attachments.Count -eq 0) {
 }
 
 # --- Build email body: HTML <pre> with monospace font so columns align in mail clients ---
-$Subject = ("$vpsName" + "TTP Analysis Report - $ReportDate").Trim()
+$Subject = ("$vpsName" + "Trades Analysis Report - $ReportDate").Trim()
 
 $BodyLines = [System.Collections.Generic.List[string]]::new()
 $BodyLines.Add("TTP Trend Candles3.3 Analysis Report - $ReportDate")
